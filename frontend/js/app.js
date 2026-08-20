@@ -28,19 +28,29 @@ function expand(rle, n) {
   return out;
 }
 
-// Render in the house's timezone, not the reader's: "22:05" must mean 22:05
-// at home even when the phone is abroad.
-function houseDate(epochS) {
-  const off = (payload?.tz_offset_min ?? 0) * 60;
-  return new Date((epochS + off) * 1000);
+// Render in the house's timezone, not the reader's: "22:05" must mean 22:05 at
+// home even when the phone is abroad. Intl with the IANA zone rather than a
+// fixed offset -- a 7-day window can straddle a DST change, and a single offset
+// would shift half the curve by an hour against local-time occupancy bands.
+let _fmt = null, _fmtTz = null;
+function parts(epochS) {
+  const tz = payload?.tz || 'Europe/Paris';
+  // One formatter, reused: dayKey alone runs once per tick per zone (~6000
+  // calls a render), and building an Intl.DateTimeFormat is not cheap.
+  if (!_fmt || _fmtTz !== tz) {
+    _fmtTz = tz;
+    _fmt = new Intl.DateTimeFormat('fr-FR', {
+      timeZone: tz, weekday: 'short', year: 'numeric', month: '2-digit',
+      day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+  }
+  const o = {};
+  for (const p of _fmt.formatToParts(new Date(epochS * 1000))) o[p.type] = p.value;
+  return o;
 }
-const p2 = (n) => String(n).padStart(2, '0');
-const hhmm = (e) => { const d = houseDate(e); return `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`; };
-const dayKey = (e) => houseDate(e).toISOString().slice(0, 10);
-const dayLabel = (e) => {
-  const d = houseDate(e);
-  return ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam'][d.getUTCDay()] + ' ' + d.getUTCDate();
-};
+const hhmm = (e) => { const p = parts(e); return `${p.hour}:${p.minute}`; };
+const dayKey = (e) => { const p = parts(e); return `${p.year}-${p.month}-${p.day}`; };
+const dayLabel = (e) => { const p = parts(e); return `${p.weekday} ${Number(p.day)}`; };
 
 function ago(iso) {
   if (!iso) return '';
