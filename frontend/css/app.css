@@ -1,0 +1,102 @@
+/* Mobile-first: this dashboard is read on a phone far more often than on a
+   desktop, so the phone layout is the base and the wide layout is the override. */
+:root {
+  --bg: #11151c;
+  --card: #1a2029;
+  --card-2: #222a35;
+  --ink: #e8edf4;
+  --ink-dim: #93a1b3;
+  --line: #2d3745;
+  --cool: #4aa8ff;
+  --warm: #ff9d4a;
+  --neutral: #6b7a8d;
+  --alert: #ff5c5c;
+  --ok: #46d18b;
+  --band: #46d18b;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 0 .75rem 2rem;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+.top {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: .5rem; flex-wrap: wrap;
+  padding: 1rem .25rem .75rem;
+  position: sticky; top: 0; z-index: 5;
+  background: linear-gradient(var(--bg) 75%, transparent);
+}
+.top h1 { margin: 0; font-size: 1.15rem; font-weight: 650; letter-spacing: .02em; }
+.top-meta { display: flex; gap: .4rem; flex-wrap: wrap; }
+
+.pill {
+  font-size: .75rem; padding: .2rem .55rem; border-radius: 999px;
+  background: var(--card-2); color: var(--ink-dim); white-space: nowrap;
+}
+.pill-out { color: var(--ink); }
+.pill.stale { background: #4a2020; color: #ffb4b4; }
+.pill.fresh { background: #1d3a2c; color: var(--ok); }
+
+/* minmax(0,1fr), not 1fr: a grid track defaults to min-width:auto, so the
+   charts (viewBox 1000 wide) would impose their intrinsic width on the card and
+   push the whole page into horizontal overflow -- on a phone the temperature
+   ended up cut off the right edge. Same reason for min-width:0 on the card. */
+.zones { display: grid; gap: .75rem; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 720px) { .zones { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1180px) { .zones { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+.zone { background: var(--card); border-radius: 14px; padding: .8rem .85rem .6rem; min-width: 0; }
+.zone-head { display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem; }
+.zone-head > div:first-child { min-width: 0; }
+.zone-name { font-weight: 620; font-size: .95rem; }
+.zone-sub { color: var(--ink-dim); font-size: .72rem; margin-top: .1rem; }
+.zone-temp { flex: 0 0 auto; font-size: 1.7rem; font-weight: 300; line-height: 1; font-variant-numeric: tabular-nums; }
+.zone-temp small { font-size: .8rem; color: var(--ink-dim); }
+.zone-temp.hot { color: var(--warm); }
+.zone-temp.cold { color: var(--cool); }
+
+.action { display: flex; align-items: center; gap: .35rem; margin: .55rem 0 .1rem; font-size: .82rem; }
+.action .emo { font-size: .95rem; }
+.action .why { color: var(--ink-dim); font-size: .72rem; }
+.action.is-active .lab { color: var(--ink); font-weight: 560; }
+.action.is-alert .lab { color: var(--alert); }
+
+.devs { display: flex; gap: .3rem; flex-wrap: wrap; margin: .45rem 0 .1rem; }
+.dev {
+  font-size: .68rem; padding: .15rem .45rem; border-radius: 6px;
+  background: var(--card-2); color: var(--ink-dim);
+}
+.dev.on { background: #123049; color: var(--cool); }
+.dev.fail { background: #4a2020; color: #ffb4b4; }
+
+/* Band gauge: where the room sits inside its comfort band, at a glance. */
+.gauge { height: 4px; border-radius: 3px; background: var(--card-2); position: relative; margin: .5rem 0 .1rem; }
+.gauge .in { position: absolute; top: 0; bottom: 0; background: rgba(70,209,139,.28); border-radius: 3px; }
+.gauge .cur { position: absolute; top: -3px; width: 2px; height: 10px; background: var(--ink); border-radius: 2px; }
+.gauge-lab { display: flex; justify-content: space-between; font-size: .64rem; color: var(--ink-dim); }
+
+.chart { width: 100%; height: 110px; display: block; margin-top: .35rem; touch-action: pan-y; }
+.strip { width: 100%; height: 14px; display: block; margin-top: 2px; }
+
+.foot {
+  display: flex; justify-content: space-between; align-items: center; gap: .75rem;
+  flex-wrap: wrap; margin-top: 1.25rem; padding: 0 .25rem;
+  font-size: .68rem; color: var(--ink-dim);
+}
+.legend { display: flex; gap: .6rem; flex-wrap: wrap; }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: .25rem; vertical-align: -1px; }
+
+.tip {
+  position: fixed; z-index: 20; pointer-events: none;
+  background: #0b0e13; border: 1px solid var(--line); border-radius: 8px;
+  padding: .35rem .5rem; font-size: .7rem; line-height: 1.35; white-space: nowrap;
+  box-shadow: 0 6px 20px rgba(0,0,0,.45);
+}
+.tip b { font-weight: 600; }
+
+.empty { color: var(--ink-dim); padding: 2rem .25rem; text-align: center; }
