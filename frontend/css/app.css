@@ -31,6 +31,7 @@
   --fan: #0d7f78;
   --occ: #6d3fc4;
   --velux: #5f7492;
+  --now: #c0392b;
 }
 * { box-sizing: border-box; }
 body {
@@ -139,6 +140,12 @@ body {
   font-size: .68rem; color: var(--ink-dim);
 }
 .axis span { position: absolute; top: 2px; transform: translateX(-50%); white-space: nowrap; }
+/* L'heure courante prend la couleur du marqueur qu'elle designe, et passe
+   au-dessus des libellés d'heure fixes qu'elle peut chevaucher. */
+.axis .now {
+  color: var(--now); font-weight: 620; z-index: 1;
+  background: var(--card); padding: 0 .15rem; border-radius: 3px;
+}
 
 .seg {
   display: inline-flex; background: var(--card-2); border-radius: 999px;

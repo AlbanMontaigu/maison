@@ -23,6 +23,9 @@ let payload = null;
 let view = localStorage.getItem(VIEW_KEY) === 'week' ? 'week' : 'day';
 // The slice the current view renders: filled by render(), read by the tooltip.
 let viewT = [];
+// Frontiere « maintenant » du rendu courant, relue par la bulle. Posee par
+// render(), donc toujours coherente avec ce qui est dessine.
+let viewNowIdx = -1;
 const frames = new Map();
 
 const $ = (id) => document.getElementById(id);
@@ -102,7 +105,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 
 /* ── chart ───────────────────────────────────────────────────────────────── */
 
-function chartSvg(f, t, marks) {
+function chartSvg(f, t, marks, nowIdx) {
   const n = t.length;
   const T = f.T, bmin = f.bmin, bmax = f.bmax, out = f.out;
 
@@ -155,6 +158,7 @@ function chartSvg(f, t, marks) {
     ${bandPath ? `<path d="${bandPath}" fill="var(--band-fill)"/>` : ''}
     <path d="${line(out)}" fill="none" stroke="var(--ink-dim)" stroke-width="1" stroke-dasharray="3 3" opacity=".55" vector-effect="non-scaling-stroke"/>
     <path d="${line(T)}" fill="none" stroke="var(--ink)" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+    ${nowMark(nowIdx, n, PLOT_H)}
   </svg>`;
 }
 
@@ -164,9 +168,14 @@ function chartSvg(f, t, marks) {
 //
 // Consecutive equal values are merged into one rect: a flat day is a handful of
 // nodes rather than a thousand, which is what keeps twelve tracks cheap.
-function trackSvg(name, values, style) {
+function trackSvg(name, nowIdx, values, style) {
   const n = values.length;
   if (!n) return '';
+  // MEME mapping que la courbe (i / (n-1)) : les pistes divisaient par n, soit
+  // un creneau de decalage accumule sur la largeur. Invisible au milieu, ~2 px
+  // au bord droit -- assez pour que le marqueur « maintenant » ne tombe pas sur
+  // le meme pixel dans la courbe et dans les barres.
+  const x = (i) => (Math.min(i, n - 1) / Math.max(1, n - 1)) * PLOT_W;
   let rects = '', i = 0;
   while (i < n) {
     let j = i + 1;
@@ -174,13 +183,25 @@ function trackSvg(name, values, style) {
     const st = style(values[i]);
     if (st && st.fill) {
       const h = st.h == null ? STRIP_H : st.h;
-      rects += `<rect x="${((i / n) * PLOT_W).toFixed(2)}" y="${(STRIP_H - h).toFixed(2)}"`
-        + ` width="${Math.max(((j - i) / n) * PLOT_W, 0.4).toFixed(2)}" height="${h.toFixed(2)}"`
+      rects += `<rect x="${x(i).toFixed(2)}" y="${(STRIP_H - h).toFixed(2)}"`
+        + ` width="${Math.max(x(j) - x(i), 0.4).toFixed(2)}" height="${h.toFixed(2)}"`
         + ` fill="${st.fill}" opacity="${st.op == null ? 0.95 : st.op}"/>`;
     }
     i = j;
   }
-  return `<svg class="strip" data-track="${name}" viewBox="0 0 ${PLOT_W} ${STRIP_H}" preserveAspectRatio="none" aria-hidden="true">${rects}</svg>`;
+  return `<svg class="strip" data-track="${name}" viewBox="0 0 ${PLOT_W} ${STRIP_H}" preserveAspectRatio="none" aria-hidden="true">`
+    + `${rects}${nowMark(nowIdx, n, STRIP_H)}</svg>`;
+}
+
+// La frontiere entre ce qui a eu lieu et ce qui reste de la journee. Dessinee
+// dans CHAQUE trace plutot qu'en surcouche CSS : les traces sont deja alignes
+// au pixel, donc les segments se lisent comme une seule ligne verticale, et le
+// marqueur ne peut pas deriver de la donnee qu'il designe.
+function nowMark(nowIdx, n, h) {
+  if (nowIdx == null || nowIdx < 0 || nowIdx >= n - 1) return '';
+  const x = ((nowIdx / Math.max(1, n - 1)) * PLOT_W).toFixed(2);
+  return `<line x1="${x}" y1="0" x2="${x}" y2="${h}" stroke="var(--now)" stroke-width="1.5"`
+    + ` vector-effect="non-scaling-stroke"/>`;
 }
 
 function trackRow(label, hint, svg) {
@@ -195,11 +216,17 @@ function trackRow(label, hint, svg) {
 // axis then sits in the SAME flex column as the plots, by construction. It used
 // to reproduce the gutter with `margin-left: calc(4.6rem + .45rem)`, which put
 // it 0.02px off and, worse, would drift the day the label column changes width.
-function axisHtml(t, marks) {
+function axisHtml(t, marks, nowIdx) {
   const n = t.length;
   if (n < 2 || !marks.length) return '';
-  const labels = marks.map(([i, l]) =>
+  let labels = marks.map(([i, l]) =>
     `<span style="left:${((i / (n - 1)) * 100).toFixed(2)}%">${esc(l)}</span>`).join('');
+  // L'etiquette du marqueur porte l'heure : « maintenant » seul obligerait a
+  // aller la chercher ailleurs sur la page.
+  if (nowIdx > 0 && nowIdx < n - 1) {
+    labels += `<span class="now" style="left:${((nowIdx / (n - 1)) * 100).toFixed(2)}%">`
+      + `${esc(hhmm(t[nowIdx]))}</span>`;
+  }
   return `<div class="track"><span class="tlab"></span><div class="axis">${labels}</div></div>`;
 }
 
@@ -213,7 +240,7 @@ function deviceChip(name, dev) {
   return `<span class="dev ${cls}">${name} ${dev.on ? 'on' : 'off'}${since}${failed ? ' ⚠️' : ''}</span>`;
 }
 
-function zoneCard(zone, f, t, marks) {
+function zoneCard(zone, f, t, marks, nowIdx) {
   const c = zone.current;
   const m = meta(c.action);
   // La bande de confort n'est plus dessinee ici : la courbe en dessous la
@@ -247,13 +274,13 @@ function zoneCard(zone, f, t, marks) {
     ${c.reason ? `<div class="why">${esc(c.reason)}</div>` : ''}
     <div class="devs">${devs}</div>
     <div class="tracks">
-      ${trackRow('température', 'Trait plein : la pièce. Pointillés : l\'extérieur. Fond vert : la bande de confort.', chartSvg(f, t, marks))}
-      ${trackRow('décision', "L'action retenue par le moteur à ce tick — une seule par tick", trackSvg('act', f.act, (a) => a ? { fill: colorFor(a), op: meta(a).active || isAlert(a) ? .95 : PASSIVE_OP } : null))}
-      ${trackRow('occupation', "Phase d'occupation de la zone", trackSvg('occ', f.occ, (v) => occMeta(v)))}
-      ${zone.has_ac ? trackRow('clim', 'Clim en marche sous pilotage du moteur', trackSvg('ac', f.ac, (v) => v ? { fill: 'var(--cool)' } : null)) : ''}
-      ${zone.has_fan ? trackRow('ventilo', 'Ventilo en marche sous pilotage du moteur', trackSvg('fan', f.fan, (v) => v ? { fill: 'var(--fan)' } : null)) : ''}
-      ${zone.has_velux ? trackRow('volet', "Ouverture du volet — hauteur de la barre = % ouvert", trackSvg('velux', f.velux, (v) => v == null ? null : { fill: 'var(--velux)', op: .8, h: Math.max(1.5, (v / 100) * STRIP_H) })) : ''}
-      ${axisHtml(t, marks)}
+      ${trackRow('température', 'Trait plein : la pièce. Pointillés : l\'extérieur. Fond vert : la bande de confort.', chartSvg(f, t, marks, nowIdx))}
+      ${trackRow('décision', "L'action retenue par le moteur à ce tick — une seule par tick", trackSvg('act', nowIdx, f.act, (a) => a ? { fill: colorFor(a), op: meta(a).active || isAlert(a) ? .95 : PASSIVE_OP } : null))}
+      ${trackRow('occupation', "Phase d'occupation de la zone", trackSvg('occ', nowIdx, f.occ, (v) => occMeta(v)))}
+      ${zone.has_ac ? trackRow('clim', 'Clim en marche sous pilotage du moteur', trackSvg('ac', nowIdx, f.ac, (v) => v ? { fill: 'var(--cool)' } : null)) : ''}
+      ${zone.has_fan ? trackRow('ventilo', 'Ventilo en marche sous pilotage du moteur', trackSvg('fan', nowIdx, f.fan, (v) => v ? { fill: 'var(--fan)' } : null)) : ''}
+      ${zone.has_velux ? trackRow('volet', "Ouverture du volet — hauteur de la barre = % ouvert", trackSvg('velux', nowIdx, f.velux, (v) => v == null ? null : { fill: 'var(--velux)', op: .8, h: Math.max(1.5, (v / 100) * STRIP_H) })) : ''}
+      ${axisHtml(t, marks, nowIdx)}
     </div>
   </section>`;
 }
@@ -300,12 +327,44 @@ function bannerHtml(h) {
 // Index range of the current view. "Day" is the calendar day (house time) of
 // the most recent tick, not a rolling 24 h: a rolling window would put two
 // different mornings side by side, which is not how anyone reads a day.
-function viewRange(t) {
-  if (view === 'week' || !t.length) return [0, t.length];
-  const k = dayKey(t[t.length - 1]);
-  let i = t.length;
-  while (i > 0 && dayKey(t[i - 1]) === k) i--;
-  return [i, t.length];
+const secsIntoDay = (e) => { const p = parts(e); return Number(p.hour) * 3600 + Number(p.minute) * 60; };
+
+// Cadence reelle des ticks, mediane pour ignorer un trou de service.
+function tickStep(ts) {
+  if (ts.length < 2) return 600;
+  const d = [];
+  for (let i = 1; i < ts.length; i++) d.push(ts[i] - ts[i - 1]);
+  d.sort((a, b) => a - b);
+  return d[Math.floor(d.length / 2)] || 600;
+}
+
+// La vue jour couvre la JOURNEE ENTIERE, 00:00 -> 24:00, pas seulement le temps
+// deja ecoule. Sinon l'axe s'etire au fil des heures : la meme piece, relue
+// deux fois dans la journee, n'a pas la meme abscisse, et rien ne dit combien
+// de journee il reste. Les creneaux a venir sont ajoutes vides (donc en fin de
+// journee la moitie droite est vide -- c'est l'information), et `nowIdx` marque
+// la frontiere.
+//
+// Le remplissage se fait a la cadence des ticks, pas sur une grille reechan-
+// tillonnee : rien des mesures reelles n'est deplace ni fusionne.
+function buildView(all) {
+  if (view === 'week' || !all.length) {
+    return { t: all, i0: 0, i1: all.length, padStart: 0, padEnd: 0, nowIdx: -1 };
+  }
+  const k = dayKey(all[all.length - 1]);
+  let i0 = all.length;
+  while (i0 > 0 && dayKey(all[i0 - 1]) === k) i0--;
+  const real = all.slice(i0);
+  const step = tickStep(real);
+  const CAP = 300;   // garde-fou : un payload aberrant ne doit pas fabriquer 100k creneaux
+  const padStart = Math.min(CAP, Math.floor(secsIntoDay(real[0]) / step));
+  const padEnd = Math.min(CAP, Math.max(0, Math.floor((86400 - secsIntoDay(real[real.length - 1])) / step) - 1));
+  const t = [];
+  for (let i = padStart; i > 0; i--) t.push(real[0] - i * step);
+  t.push(...real);
+  const last = real[real.length - 1];
+  for (let i = 1; i <= padEnd; i++) t.push(last + i * step);
+  return { t, i0, i1: all.length, padStart, padEnd, nowIdx: padStart + real.length - 1 };
 }
 
 // Where the gridlines and the time labels go, computed once for every zone.
@@ -328,14 +387,15 @@ function viewMarks(t) {
 // The payload ships every track run-length encoded over the full window; the
 // view slices them. Held in `frames` so the tooltip reads exactly what is drawn
 // -- computing it twice is how an off-by-one between chart and readout starts.
-function frameFor(zone, n, i0, i1) {
+function frameFor(zone, n, v) {
   const ser = zone.series || {};
-  const cut = (rleArr) => expand(rleArr || [], n).slice(i0, i1);
+  const pad = (arr) => [...Array(v.padStart).fill(null), ...arr, ...Array(v.padEnd).fill(null)];
+  const cut = (rleArr) => pad(expand(rleArr || [], n).slice(v.i0, v.i1));
   return {
-    T: (ser.T || []).slice(i0, i1),
-    out: (payload.outdoor?.T || []).slice(i0, i1),
+    T: pad((ser.T || []).slice(v.i0, v.i1)),
+    out: pad((payload.outdoor?.T || []).slice(v.i0, v.i1)),
     bmin: cut(ser.bmin), bmax: cut(ser.bmax),
-    act: expand(zone.runs || [], n).slice(i0, i1),
+    act: pad(expand(zone.runs || [], n).slice(v.i0, v.i1)),
     // Optional: a container still serving a payload from before the tracks
     // were exported must degrade to empty rows, not to a broken page.
     occ: cut(ser.occ), ac: cut(ser.ac), fan: cut(ser.fan), velux: cut(ser.velux),
@@ -344,10 +404,11 @@ function frameFor(zone, n, i0, i1) {
 
 function render() {
   const all = payload.t || [];
-  const [i0, i1] = viewRange(all);
-  const t = all.slice(i0, i1);
+  const v = buildView(all);
+  const t = v.t;
   const marks = viewMarks(t);
   viewT = t;
+  viewNowIdx = v.nowIdx;
   frames.clear();
   const eng = payload.engine || {};
 
@@ -371,9 +432,9 @@ function render() {
 
   $('zones').innerHTML = payload.zones.length
     ? payload.zones.map((z) => {
-      const f = frameFor(z, all.length, i0, i1);
+      const f = frameFor(z, all.length, v);
       frames.set(z.name, f);
-      return zoneCard(z, f, t, marks);
+      return zoneCard(z, f, t, marks, v.nowIdx);
     }).join('')
     : '<p class="empty">Aucune zone dans les données.</p>';
 
@@ -554,8 +615,13 @@ function bindTip() {
     const i = Math.max(0, Math.min(t.length - 1,
       Math.round(((ev.clientX - r.left) / r.width) * (t.length - 1))));
 
+    // Au-dela du marqueur on n'est pas devant une donnee manquante mais devant
+    // une heure qui n'a pas encore eu lieu -- le dire evite de lire un trou de
+    // service la ou il n'y a que le futur.
+    const ahead = viewNowIdx >= 0 && i > viewNowIdx;
     tip.innerHTML = `<b>${dayLabel(t[i])} ${hhmm(t[i])}</b><br>`
-      + tipFor(svg.dataset.track || 'chart', f, i, t);
+      + (ahead ? '<span class="dim">à venir</span>'
+               : tipFor(svg.dataset.track || 'chart', f, i, t));
     tip.hidden = false;
     // Keep the readout on screen near the right edge of a phone.
     const w = tip.offsetWidth;
