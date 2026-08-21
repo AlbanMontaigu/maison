@@ -241,6 +241,43 @@ function deviceChip(name, dev) {
   return `<span class="dev ${cls}">${name} ${dev.on ? 'on' : 'off'}${since}${failed ? ' ⚠️' : ''}</span>`;
 }
 
+// Ce que la fenetre dit, pas ce que l'instant dit. Sur sept jours, « trop
+// chaud, plus de levier » decrit un tick parmi mille : c'est du bruit devant la
+// question que la vue semaine pose, qui est une question de tendance.
+//
+// Tout est calcule sur les series deja tracees -- meme source que les courbes,
+// donc pas de chiffre qui contredise le dessin juste au-dessus.
+function weekStats(zone, f, t) {
+  const stepH = tickStep(t) / 3600;
+  let n = 0, sum = 0, lo = Infinity, hi = -Infinity, out = 0, ac = 0, fan = 0;
+  for (let i = 0; i < f.T.length; i++) {
+    const v = f.T[i];
+    if (v != null) {
+      n++; sum += v;
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+      // Hors bande = au-dessus du max OU en dessous du min A CE TICK : la bande
+      // bouge avec le programme jour/nuit, un seuil fixe mentirait la nuit.
+      if ((f.bmax[i] != null && v > f.bmax[i]) || (f.bmin[i] != null && v < f.bmin[i])) out++;
+    }
+    if (f.ac[i]) ac++;
+    if (f.fan[i]) fan++;
+  }
+  if (!n) return '';
+  const dur = (ticks) => {
+    const h = ticks * stepH;
+    return h < 1 ? `${Math.round(h * 60)} min` : `${h < 10 ? h.toFixed(1) : Math.round(h)} h`;
+  };
+  const chips = [
+    `<span class="stat">moyenne <b>${(sum / n).toFixed(1)}°</b></span>`,
+    `<span class="stat">${lo.toFixed(1)} → ${hi.toFixed(1)}°</span>`,
+    `<span class="stat${out / n > .25 ? ' warn' : ''}">hors bande <b>${Math.round((out / n) * 100)} %</b></span>`,
+  ];
+  if (zone.has_ac) chips.push(`<span class="stat">clim ${ac ? dur(ac) : '—'}</span>`);
+  if (zone.has_fan) chips.push(`<span class="stat">ventilo ${fan ? dur(fan) : '—'}</span>`);
+  return `<div class="devs">${chips.join('')}</div>`;
+}
+
 function zoneCard(zone, f, t, marks, nowIdx) {
   const c = zone.current;
   const m = meta(c.action);
@@ -261,19 +298,25 @@ function zoneCard(zone, f, t, marks, nowIdx) {
   if (c.directive) sub.push(`directive : ${esc(c.directive)}`);
   if (c.day_peak != null) sub.push(`pic du jour ${c.day_peak}°`);
 
+  // Sur la semaine, l'instant cede la place a la fenetre : l'action du moment,
+  // son motif et l'anciennete des appareils decrivent un tick parmi mille.
+  const head = view === 'week'
+    ? weekStats(zone, f, t)
+    : `<div class="action ${m.active ? 'is-active' : ''} ${isAlert(c.action) ? 'is-alert' : ''}">
+      <span class="emo">${m.emoji}</span><span class="lab">${esc(m.label)}</span>
+    </div>
+    ${c.reason ? `<div class="why">${esc(c.reason)}</div>` : ''}
+    <div class="devs">${devs}</div>`;
+
   return `<section class="zone" data-zone="${esc(zone.name)}">
     <div class="zone-head">
       <div>
         <div class="zone-name">${esc(zone.name)}</div>
-        <div class="zone-sub">${sub.join(' · ')}</div>
+        <div class="zone-sub">${view === 'week' ? '' : sub.join(' · ')}</div>
       </div>
       <div class="zone-temp ${tempCls}">${c.T != null ? c.T.toFixed(1) : '—'}<small>°C</small></div>
     </div>
-    <div class="action ${m.active ? 'is-active' : ''} ${isAlert(c.action) ? 'is-alert' : ''}">
-      <span class="emo">${m.emoji}</span><span class="lab">${esc(m.label)}</span>
-    </div>
-    ${c.reason ? `<div class="why">${esc(c.reason)}</div>` : ''}
-    <div class="devs">${devs}</div>
+    ${head}
     <div class="tracks">
       ${trackRow('température', 'Trait plein : la pièce. Pointillés : l\'extérieur. Fond vert : la bande de confort.', chartSvg(f, t, marks, nowIdx))}
       ${trackRow('décision', "L'action retenue par le moteur à ce tick — une seule par tick", trackSvg('act', nowIdx, f.act, (a) => a ? { fill: colorFor(a), op: meta(a).active || isAlert(a) ? .95 : PASSIVE_OP } : null))}
@@ -536,8 +579,19 @@ function helpHtml() {
     <h3>Le reste</h3>
     <ul>
       <li><b>Jour / 7 j</b> — « Jour » est le jour calendaire en cours de la
-      maison, pas les 24 dernières heures. Le choix est retenu d'une visite à
+      maison, tracé de 00 h à 24 h : la partie à venir reste vide et un trait
+      rouge marque l'heure qu'il est. Le choix est retenu d'une visite à
       l'autre.</li>
+      <li>Sur <b>7 j</b>, la carte ne montre plus l'action du moment ni son
+      motif — sur mille ticks, c'en est un. Elle affiche à la place ce que la
+      fenêtre dit : température moyenne, amplitude (min → max), et durées de
+      marche clim / ventilo.</li>
+      <li><b>hors bande</b> = part de la fenêtre entière — heures inoccupées
+      comprises — où la pièce était au-dessus du haut de bande ou en dessous du
+      bas, comparée à la bande <em>de ce moment-là</em> et non à un seuil fixe.
+      La restreindre aux seules heures d'occupation a été mesuré : au plus
+      7 points d'écart, donc le chiffre simple suffit. Il vire à l'orange
+      au-delà de 25 %.</li>
       <li><b>tick 12:05</b> en haut à droite : l'heure du dernier passage du
       moteur. La pastille passe au rouge s'il se tait.</li>
       <li><b>clim off · 7 h</b> sous la ligne d'action : depuis combien de temps
