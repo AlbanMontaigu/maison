@@ -32,6 +32,11 @@
   --occ: #6d3fc4;
   --velux: #5f7492;
   --now: #c0392b;
+  /* Prévision : une COULEUR a elle, pas une nuance de gris. Deux gris
+     pointillés (« mesuré » et « prévu ») se ressemblaient sur 240 px de large,
+     ce qui est précisément la distinction que la comparaison demande. */
+  --fc: #6a5acd;
+  --fc-fill: rgba(106, 90, 205, .13);
   --sun: #b8860b;
   --sun-fill: rgba(212, 160, 23, .20);
 }

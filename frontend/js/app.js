@@ -182,6 +182,31 @@ function niceTicks(lo, hi) {
   return out;
 }
 
+// L'ecart entre ce qui etait prevu et ce qui a ete mesure, rempli. Deux traces
+// qui se croisent demandent de suivre chacun du regard ; une surface se lit
+// d'un coup, et c'est elle qui repond a « la prevision etait-elle bonne ».
+// Uniquement sur les heures passees : a droite du marqueur il n'y a pas de
+// mesure a opposer.
+function gapArea(measured, forecast, x, y) {
+  const runs = [];
+  let cur = null;
+  for (let i = 0; i < measured.length; i++) {
+    const a = measured[i], b = forecast[i];
+    if (a == null || b == null) { cur = null; continue; }
+    if (!cur) { cur = []; runs.push(cur); }
+    cur.push([i, a, b]);
+  }
+  return runs.filter((r) => r.length > 1).map((r) => {
+    let d = '';
+    r.forEach(([i, a], k) => { d += (k ? 'L' : 'M') + `${x(i).toFixed(1)},${y(a).toFixed(1)}`; });
+    for (let k = r.length - 1; k >= 0; k--) {
+      const [i, , b] = r[k];
+      d += `L${x(i).toFixed(1)},${y(b).toFixed(1)}`;
+    }
+    return `<path d="${d}Z" fill="var(--fc-fill)"/>`;
+  }).join('');
+}
+
 function chartSvg(f, t, marks, nowIdx) {
   const n = t.length;
   const T = f.T, bmin = f.bmin, bmax = f.bmax, out = f.out;
@@ -257,9 +282,10 @@ function chartSvg(f, t, marks, nowIdx) {
     ${grid}
     ${seps}
     ${bandPath ? `<path d="${bandPath}" fill="var(--band-fill)"/>` : ''}
-    <path d="${line(out)}" fill="none" stroke="var(--ink-dim)" stroke-width="1" stroke-dasharray="3 3" opacity=".55" vector-effect="non-scaling-stroke"/>
-    <path d="${line(outPast)}" fill="none" stroke="var(--ink-dim)" stroke-width="1" stroke-dasharray="1 3" opacity=".45" vector-effect="non-scaling-stroke"/>
-    <path d="${line(outFc)}" fill="none" stroke="var(--ink-dim)" stroke-width="1" stroke-dasharray="1 3" opacity=".45" vector-effect="non-scaling-stroke"/>
+    ${gapArea(out, outPast, x, y)}
+    <path d="${line(out)}" fill="none" stroke="var(--ink-dim)" stroke-width="1.1" stroke-dasharray="4 3" opacity=".75" vector-effect="non-scaling-stroke"/>
+    <path d="${line(outPast)}" fill="none" stroke="var(--fc)" stroke-width="1.3" stroke-dasharray="1 3" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+    <path d="${line(outFc)}" fill="none" stroke="var(--fc)" stroke-width="1.3" stroke-dasharray="1 3" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
     <path d="${line(T)}" fill="none" stroke="var(--ink)" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
     ${nowMark(nowIdx, n, PLOT_H)}
     <line x1="0" y1="${PLOT_H}" x2="${PLOT_W}" y2="${PLOT_H}" stroke="var(--ink-dim)" stroke-width="1" vector-effect="non-scaling-stroke"/>
@@ -1074,10 +1100,13 @@ function helpHtml() {
     température dehors, et le soleil attendu sur la fenêtre de chaque pièce
     (même calcul que pour le présent, donc une pièce peu exposée reste peu
     exposée dans la prévision).</p>
-    <p><b>Prévu contre mesuré.</b> Le pointillé fin court aussi sur les heures
-    déjà passées : c'est ce qui avait été annoncé, figé au premier relevé de la
-    journée. Survoler la courbe donne l'écart (« dehors 13,9°, prévu 16,1°,
-    −2,2° »). L'archive est indispensable — la météo réécrit ses heures passées
+    <p><b>Prévu contre mesuré.</b> Trois traits à ne pas confondre : la pièce est
+    en <em>noir plein</em>, le dehors <em>mesuré</em> en tirets gris, le dehors
+    <em>prévu</em> en pointillé violet. La bande violette pâle entre les deux
+    derniers <em>est</em> l'écart : large, la météo s'est trompée ; absente, elle
+    avait vu juste. Le prévu court aussi sur les heures déjà passées — c'est ce
+    qui avait été annoncé, figé au premier relevé de la journée. Survoler donne
+    le chiffre (« dehors 13,9°, prévu 16,1°, −2,2° »). L'archive est indispensable — la météo réécrit ses heures passées
     à chaque appel, et comparer sans elle opposerait la mesure à une prévision
     corrigée après coup, ce qui flatte la prévision.</p>
     <p>L'écart n'est donné que pour le <em>dehors</em> : c'est la seule des deux
@@ -1122,7 +1151,8 @@ function helpHtml() {
     <div class="chips">${[['var(--cool)', 'refroidir / clim'], ['var(--warm)', 'réchauffer'],
       ['var(--fan)', 'ventilo'], ['var(--occ)', "quelqu'un dans la pièce"],
       ['var(--velux)', 'volet'], ['var(--sun)', 'soleil'], ['var(--alert)', 'panne'],
-      ['var(--band)', 'objectif de température'], ['var(--now)', "l'heure qu'il est"]]
+      ['var(--band)', 'objectif de température'], ['var(--now)', "l'heure qu'il est"],
+      ['var(--ink-dim)', 'dehors, mesuré'], ['var(--fc)', 'dehors, prévu']]
       .map(([c, l]) => `<span class="chip"><i style="background:${c}"></i>${l}</span>`).join('')}</div>
 
     <h3>Occupation</h3>
