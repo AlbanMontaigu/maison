@@ -74,12 +74,25 @@ body {
 
 /* Bloc électricité : niveau MAISON, donc au-dessus des cartes de zone et pas
    dedans — le Linky compte tout le compteur, pas une pièce. */
-.energy {
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: .55rem 1.1rem;
+.energy { display: block;
   background: var(--card); border: 1px solid var(--edge); border-radius: 14px;
   padding: .7rem .85rem; margin-bottom: .75rem;
 }
+.erow { display: flex; flex-wrap: wrap; align-items: baseline; gap: .55rem 1.1rem; }
 .energy .etitle { font-size: .88rem; font-weight: 660; }
+/* Courbe du coût : niveau maison, donc pleine largeur du bloc. */
+.ecurve { position: relative; margin-top: .6rem; }
+.ecurve svg { width: 100%; height: 48px; display: block; }
+.ecurve .ehi, .ecurve .espan {
+  position: absolute; font-size: .64rem; color: var(--ink-dim);
+  background: var(--card); padding: 0 3px; border-radius: 3px;
+}
+.ecurve .ehi { top: 0; left: 0; }
+.ecurve .espan { bottom: 0; right: 0; }
+.ecurve.empty {
+  font-size: .76rem; color: var(--ink-dim);
+  border-top: 1px dashed var(--edge); padding-top: .5rem;
+}
 .energy .e { display: flex; flex-direction: column; line-height: 1.25; }
 .energy .e i { font-style: normal; font-size: .7rem; color: var(--ink-dim); }
 .energy .e b { font-size: 1.05rem; font-weight: 620; font-variant-numeric: tabular-nums; }
@@ -112,6 +125,21 @@ body {
 .zone-head { display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem; }
 .zone-head > div:first-child { min-width: 0; }
 .zone-name { font-weight: 660; font-size: 1rem; }
+/* Le nom est le lien vers la pièce : pas de bouton en plus, la cible évidente
+   d'une carte est son titre. */
+.zlink { color: inherit; text-decoration: none; border-bottom: 1px solid var(--edge); }
+.zlink:hover { border-bottom-color: var(--ink-dim); }
+.zone.solo .zone-name { font-size: 1.15rem; }
+.back { display: inline-block; margin: 0 .25rem .6rem; font-size: .84rem; color: var(--ink-dim); text-decoration: none; }
+.back:hover { color: var(--ink); }
+
+/* Détail d'une pièce : des agrégats, pas un journal. */
+.detail { margin-top: .8rem; border-top: 1px solid var(--edge); padding-top: .7rem; }
+.detail dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .6rem 1rem; margin: 0; }
+.detail dt { font-size: .72rem; color: var(--ink-dim); }
+.detail dd { margin: 0; font-size: .95rem; font-weight: 560; }
+.detail dd em { display: block; font-style: normal; font-size: .72rem; font-weight: 400; color: var(--ink-dim); }
+.detail h4 { margin: .9rem 0 .35rem; font-size: .74rem; font-weight: 620; color: var(--ink-dim); }
 .zone-sub { color: var(--ink-dim); font-size: .76rem; margin-top: .15rem; }
 .zone-temp { flex: 0 0 auto; font-size: 1.85rem; font-weight: 400; line-height: 1; font-variant-numeric: tabular-nums; }
 .zone-temp small { font-size: .8rem; color: var(--ink-dim); }

@@ -30,6 +30,14 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* rien a faire */ } },
 };
 let view = store.get(VIEW_KEY) === 'week' ? 'week' : 'day';
+// Zone ouverte, portee par le HASH et pas par une variable : l'URL est
+// partageable, le bouton Retour du navigateur marche sans code, et un
+// rafraichissement garde la piece ouverte. Le nom est celui du payload, donc
+// une zone renommee ramene simplement a la vue d'ensemble.
+const zoneFromHash = () => {
+  const m = /^#zone=(.*)$/.exec(location.hash || '');
+  try { return m ? decodeURIComponent(m[1]) : null; } catch { return null; }
+};
 // The slice the current view renders: filled by render(), read by the tooltip.
 let viewT = [];
 // Frontiere « maintenant » du rendu courant, relue par la bulle. Posee par
@@ -467,6 +475,82 @@ function plainState(c) {
   return bits.join(' · ');
 }
 
+// Ce que la page ne montre pas ailleurs, et qui reste une vue d'ensemble : des
+// agregats de la fenetre, pas un journal d'evenements. On ne descend pas au
+// tick -- la pile de pistes le fait deja, et mieux.
+//
+// Tout est calcule sur les series DEJA TRACEES au-dessus : aucun chiffre ne
+// peut contredire le dessin, et rien n'est relu depuis le payload brut.
+function zoneDetail(zone, f, t) {
+  const stepH = tickStep(t) / 3600;
+  const dur = (n) => {
+    const h = n * stepH;
+    return h < 1 ? `${Math.round(h * 60)} min` : `${h < 10 ? h.toFixed(1) : Math.round(h)} h`;
+  };
+  const rows = [];
+
+  const T = f.T.filter((v) => v != null);
+  if (T.length) {
+    const avg = T.reduce((a, b) => a + b, 0) / T.length;
+    let out = 0;
+    for (let i = 0; i < f.T.length; i++) {
+      const v = f.T[i];
+      if (v == null) continue;
+      if ((f.bmax[i] != null && v > f.bmax[i]) || (f.bmin[i] != null && v < f.bmin[i])) out++;
+    }
+    rows.push(['Température', `moyenne ${avg.toFixed(1)} °C`,
+      `de ${Math.min(...T).toFixed(1)} à ${Math.max(...T).toFixed(1)} °C`]);
+    rows.push(["Hors de l'objectif", `${Math.round((out / T.length) * 100)} %`,
+      `soit ${dur(out)} sur la fenêtre`]);
+  }
+
+  const occ = f.occ.filter((v) => v != null && v !== 'off').length;
+  if (f.has.occ) rows.push(['Occupation', dur(occ), 'quelqu\'un dans la pièce']);
+
+  if (zone.has_ac && f.has.ac) {
+    const on = f.ac.filter(Boolean).length;
+    rows.push(['Clim', on ? dur(on) : 'jamais',
+      on ? `${Math.round((on / f.ac.length) * 100)} % de la fenêtre` : 'sur cette fenêtre']);
+  }
+  if (zone.has_fan && f.has.fan) {
+    const on = f.fan.filter(Boolean).length;
+    rows.push(['Ventilo', on ? dur(on) : 'jamais',
+      on ? `${Math.round((on / f.fan.length) * 100)} % de la fenêtre` : 'sur cette fenêtre']);
+  }
+  if (zone.has_velux && f.has.velux) {
+    const v = f.velux.filter((x) => x != null);
+    if (v.length) rows.push(['Volet', `ouvert ${Math.round(v.reduce((a, b) => a + b, 0) / v.length)} % en moyenne`,
+      `de ${Math.min(...v)} à ${Math.max(...v)} %`]);
+  }
+  if (f.has.solar) {
+    const sun = f.solar.filter((v) => v != null);
+    if (sun.length) {
+      const strong = sun.filter((v) => v >= SOLAR_HIGH).length;
+      rows.push(['Soleil', `pointe à ${Math.max(...sun)} W/m²`,
+        strong ? `${dur(strong)} au-dessus du seuil d'action` : "jamais assez fort pour agir"]);
+    }
+  }
+
+  // Le temps passe dans chaque action, du plus long au plus court : c'est le
+  // resume que la frise ne donne pas d'un coup d'oeil.
+  const byAction = new Map();
+  for (const a of f.act) {
+    if (!a) continue;
+    const m = meta(a);
+    const k = `${m.emoji}|${m.label}`;
+    byAction.set(k, (byAction.get(k) || 0) + 1);
+  }
+  const top = [...byAction.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6)
+    .map(([k, n]) => { const [emo, lab] = k.split('|');
+      return `<span class="chip">${emo} ${esc(lab)} <b>${dur(n)}</b></span>`; }).join('');
+
+  return `<div class="detail">
+    <dl>${rows.map(([k, v, sub]) =>
+      `<div><dt>${esc(k)}</dt><dd>${v}<em>${esc(sub)}</em></dd></div>`).join('')}</dl>
+    ${top ? `<h4>Temps passé par action</h4><div class="chips">${top}</div>` : ''}
+  </div>`;
+}
+
 function zoneCard(zone, f, t, marks, nowIdx) {
   const c = zone.current;
   const m = meta(c.action);
@@ -498,10 +582,12 @@ function zoneCard(zone, f, t, marks, nowIdx) {
     <div class="why">${plainState(c)}</div>
     <div class="devs">${devs}</div>`;
 
-  return `<section class="zone" data-zone="${esc(zone.name)}">
+  const open = zoneFromHash() === zone.name;
+  return `<section class="zone${open ? ' solo' : ''}" data-zone="${esc(zone.name)}">
     <div class="zone-head">
       <div>
-        <div class="zone-name">${esc(zone.name)}</div>
+        <div class="zone-name">${open ? esc(zone.name)
+          : `<a class="zlink" href="#zone=${encodeURIComponent(zone.name)}">${esc(zone.name)}</a>`}</div>
         <div class="zone-sub">${view === 'week' ? '' : sub.join(' · ')}</div>
       </div>
       ${c.T != null
@@ -529,6 +615,7 @@ function zoneCard(zone, f, t, marks, nowIdx) {
       ${axisHtml(t, marks, nowIdx)}
       <div class="cursor" hidden></div>
     </div>
+    ${open ? zoneDetail(zone, f, t) : ''}
   </section>`;
 }
 
@@ -557,6 +644,45 @@ const frDate = (iso) => {
 const eur = (v) => v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 const kwh = (v) => v.toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' kWh';
 
+// Courbe du cout, en euros. La serie porte `conso_jour_kwh`, un cumul qui
+// repart de zero a minuit : sur la journee elle monte, sur la semaine elle
+// dessine une dent de scie dont chaque pic est le total d'un jour. C'est la
+// meme donnee qui repond aux deux questions, sans rien recalculer.
+//
+// Le kWh est stocke et l'euro calcule a l'affichage : un historique en euros
+// figerait l'ancien tarif dans le passe le jour ou le contrat change.
+function energyCurve(e) {
+  const tarif = e.tarif_kwh_eur;
+  const pts = (e.series || []).filter((p) => Array.isArray(p) && p.length === 2);
+  const from = view === 'day' && viewT.length ? dayKey(viewT[viewT.length - 1]) : null;
+  const use = from ? pts.filter((p) => dayKey(p[0]) === from) : pts;
+  // Deux points font un segment ; un seul ne fait rien. Le dire plutot que
+  // dessiner un trait plat qu'on lirait comme « conso nulle ».
+  if (use.length < 2 || !tarif) {
+    return `<div class="ecurve empty">la courbe se remplit au fil des relevés</div>`;
+  }
+  const W = 1000, H = 46;
+  const t0 = use[0][0], t1 = use[use.length - 1][0];
+  const hi = Math.max(...use.map((p) => p[1])) * tarif || 1;
+  const x = (ts) => (t1 === t0 ? W : ((ts - t0) / (t1 - t0)) * W);
+  const y = (v) => H - (v / hi) * H;
+  let d = '', area = `M0,${H}L`;
+  use.forEach((p, k) => {
+    const pt = `${x(p[0]).toFixed(1)},${y(p[1] * tarif).toFixed(1)}`;
+    d += (k ? 'L' : 'M') + pt;
+    area += (k ? 'L' : '') + pt;
+  });
+  area += `L${W},${H}Z`;
+  return `<div class="ecurve">
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+        <path d="${area}" fill="var(--sun-fill)"/>
+        <path d="${d}" fill="none" stroke="var(--sun)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+      </svg>
+      <span class="ehi">${eur(hi)}</span>
+      <span class="espan">${esc(stamp(t0, t1))} → ${esc(stamp(t1, t1))}</span>
+    </div>`;
+}
+
 function energyHtml(e) {
   if (!e) {
     return `<div class="energy off"><b>Électricité</b>`
@@ -574,8 +700,11 @@ function energyHtml(e) {
       + `${e.now_eur_h != null ? `<em>${eur(e.now_eur_h)} par heure</em>` : ''}</span>`
     : '';
   return `<div class="energy${old ? ' stale' : ''}">
-      <b class="etitle">Électricité</b>
-      ${cell("aujourd'hui", e.jour)}${cell('ce mois', e.mois)}${cell('cette année', e.annee)}${now}
+      <div class="erow">
+        <b class="etitle">Électricité</b>
+        ${cell("aujourd'hui", e.jour)}${cell('ce mois', e.mois)}${cell('cette année', e.annee)}${now}
+      </div>
+      ${energyCurve(e)}
       ${old ? `<span class="esub">relevé vieux de ${ago(e.generated_at, Date.now())}</span>` : ''}
     </div>`;
 }
@@ -762,8 +891,16 @@ function render() {
 
   $('banners').innerHTML = energyHtml(payload.energy) + bannerHtml(payload.house);
 
-  $('zones').innerHTML = payload.zones.length
-    ? payload.zones.map((z) => {
+  // Une piece ouverte : on ne rend qu'elle. Un nom inconnu (zone renommee,
+  // lien vieilli) retombe sur la vue d'ensemble plutot que sur une page vide.
+  const solo = zoneFromHash();
+  const shown = solo ? payload.zones.filter((z) => z.name === solo) : payload.zones;
+  const zones = shown.length ? shown : payload.zones;
+  $('back').innerHTML = solo && shown.length
+    ? '<a class="back" href="#">← toutes les pièces</a>' : '';
+
+  $('zones').innerHTML = zones.length
+    ? zones.map((z) => {
       const f = frameFor(z, all.length, v);
       frames.set(z.name, f);
       return zoneCard(z, f, t, marks, v.nowIdx);
@@ -867,6 +1004,16 @@ function helpHtml() {
 
     <h3>Le reste</h3>
     <ul>
+      <li><b>Cliquer le nom d'une pièce</b> ouvre sa page : la même carte, seule,
+      suivie d'un résumé de la fenêtre — moyenne, temps hors de l'objectif,
+      durées d'occupation et de marche, pointe de soleil, et le temps passé
+      dans chaque action. L'adresse porte la pièce, donc le lien se partage et
+      le bouton Retour du navigateur ramène à l'ensemble.</li>
+      <li><b>La courbe du coût</b> est celle de <em>toute</em> la maison, en
+      haut de page. Sur « Jour » elle monte depuis minuit ; sur « 7 j » chaque
+      pic est le total d'une journée, puisque le compteur repart de zéro à
+      minuit. Elle se construit à partir des relevés pris toutes les 10 min :
+      un compteur ne donne qu'un cumul instantané, l'historique se fabrique.</li>
       <li><b>Jour / 7 j</b> — « Jour » est le jour calendaire en cours de la
       maison, tracé de 00 h à 24 h : la partie à venir reste vide et un trait
       rouge marque l'heure qu'il est. Le choix est retenu d'une visite à
@@ -889,6 +1036,15 @@ function helpHtml() {
       <li>La page se rafraîchit toute seule chaque minute ; la maison, elle,
       exporte toutes les 10 minutes.</li>
     </ul>`;
+}
+
+// Le hash pilote le rendu : un clic sur une piece, un Retour navigateur ou un
+// lien colle dans la barre d'adresse passent tous par le meme chemin.
+function bindRoute() {
+  window.addEventListener('hashchange', () => {
+    if (payload) render();
+    window.scrollTo(0, 0);
+  });
 }
 
 function bindView() {
@@ -1065,6 +1221,7 @@ fetch('build.txt').then((r) => r.ok ? r.text() : '').then((v) => {
 }).catch(() => {});
 
 bindView();
+bindRoute();
 bindTip();
 load();
 setInterval(load, REFRESH_MS);
