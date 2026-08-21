@@ -109,7 +109,7 @@ body {
 .dev.on { background: #e4eefb; color: var(--cool); font-weight: 560; }
 .dev.fail { background: #fdecea; color: #a5281a; font-weight: 560; }
 
-.chart { width: 100%; height: 120px; display: block; margin-top: .4rem; touch-action: pan-y; }
+.chart { width: 100%; height: 120px; display: block; touch-action: pan-y; }
 .strip { width: 100%; height: 16px; display: block; }
 
 /* One labelled row per actuator. The label column is fixed so every track in
@@ -126,10 +126,16 @@ body {
   flex: 1 1 auto; min-width: 0; background: var(--card-2);
   border-radius: 3px; overflow: hidden;
 }
-/* Same 4.6rem + gap offset as the label column, so a "12h" label sits under
-   the gridline it names rather than under the card's edge. */
+/* Meme colonne que .tbar — c'est ce qui aligne la courbe sur les pistes — mais
+   sans le fond ni l'arrondi : un trace, pas une barre. */
+.tplot { flex: 1 1 auto; min-width: 0; }
+.track:first-child { margin-top: .4rem; margin-bottom: 2px; }
+/* Une piste de plus dans la grille (libelle vide), donc exactement la meme
+   colonne que les traces -- et non une reproduction de la gouttiere qui
+   deriverait le jour ou la colonne de libelles change de largeur. */
 .axis {
-  position: relative; height: 1rem; margin-left: calc(4.6rem + .45rem);
+  flex: 1 1 auto; min-width: 0;
+  position: relative; height: 1rem;
   font-size: .68rem; color: var(--ink-dim);
 }
 .axis span { position: absolute; top: 2px; transform: translateX(-50%); white-space: nowrap; }

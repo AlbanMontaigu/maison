@@ -184,16 +184,23 @@ function trackSvg(name, values, style) {
 }
 
 function trackRow(label, hint, svg) {
+  // La courbe n'a pas le fond des pistes : c'est un trace, pas une barre.
+  const cls = svg.includes('class="chart"') ? 'tplot' : 'tbar';
   return `<div class="track"><span class="tlab" title="${esc(hint || label)}">${esc(label)}</span>`
-    + `<div class="tbar">${svg}</div></div>`;
+    + `<div class="${cls}">${svg}</div></div>`;
 }
 
 // Time labels under the tracks, from the same mark list the gridlines use.
+// Rendered as one more row of the track grid, with an empty label cell: the
+// axis then sits in the SAME flex column as the plots, by construction. It used
+// to reproduce the gutter with `margin-left: calc(4.6rem + .45rem)`, which put
+// it 0.02px off and, worse, would drift the day the label column changes width.
 function axisHtml(t, marks) {
   const n = t.length;
   if (n < 2 || !marks.length) return '';
-  return `<div class="axis">${marks.map(([i, l]) =>
-    `<span style="left:${((i / (n - 1)) * 100).toFixed(2)}%">${esc(l)}</span>`).join('')}</div>`;
+  const labels = marks.map(([i, l]) =>
+    `<span style="left:${((i / (n - 1)) * 100).toFixed(2)}%">${esc(l)}</span>`).join('');
+  return `<div class="track"><span class="tlab"></span><div class="axis">${labels}</div></div>`;
 }
 
 /* ── zone card ───────────────────────────────────────────────────────────── */
@@ -239,8 +246,8 @@ function zoneCard(zone, f, t, marks) {
     </div>
     ${c.reason ? `<div class="why">${esc(c.reason)}</div>` : ''}
     <div class="devs">${devs}</div>
-    ${chartSvg(f, t, marks)}
     <div class="tracks">
+      ${trackRow('température', 'Trait plein : la pièce. Pointillés : l\'extérieur. Fond vert : la bande de confort.', chartSvg(f, t, marks))}
       ${trackRow('décision', "L'action retenue par le moteur à ce tick — une seule par tick", trackSvg('act', f.act, (a) => a ? { fill: colorFor(a), op: meta(a).active || isAlert(a) ? .95 : PASSIVE_OP } : null))}
       ${trackRow('occupation', "Phase d'occupation de la zone", trackSvg('occ', f.occ, (v) => occMeta(v)))}
       ${zone.has_ac ? trackRow('clim', 'Clim en marche sous pilotage du moteur', trackSvg('ac', f.ac, (v) => v ? { fill: 'var(--cool)' } : null)) : ''}
