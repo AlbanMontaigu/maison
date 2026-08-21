@@ -29,7 +29,13 @@ const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* rien a faire */ } },
 };
-let view = store.get(VIEW_KEY) === 'week' ? 'week' : 'day';
+const VIEWS = ['yesterday', 'day', 'week'];
+let view = VIEWS.includes(store.get(VIEW_KEY)) ? store.get(VIEW_KEY) : 'day';
+// « Hier » et « 7 j » sont RETROSPECTIVES : la fenetre est close. Ce qui decrit
+// l'instant present -- action en cours, temperature actuelle, anciennete des
+// appareils -- n'y a pas sa place : ce serait dire « maintenant » sur une page
+// qui parle d'avant. Elles montrent donc des agregats de fenetre.
+const isRetro = () => view !== 'day';
 // Zone ouverte, portee par le HASH et pas par une variable : l'URL est
 // partageable, le bouton Retour du navigateur marche sans code, et un
 // rafraichissement garde la piece ouverte. Le nom est celui du payload, donc
@@ -551,6 +557,23 @@ function zoneDetail(zone, f, t) {
   </div>`;
 }
 
+// Le chiffre en gros. Sur « aujourd'hui » c'est la mesure du moment ; sur une
+// fenetre CLOSE c'est la moyenne de la fenetre, annoncee comme telle. Afficher
+// la temperature actuelle sur une page « hier » reviendrait a dater de
+// maintenant une information sur avant -- le defaut existait deja sur la vue
+// 7 j, la vue « hier » l'a rendu evident.
+function headline(c, f, tempCls) {
+  if (isRetro()) {
+    const T = f.T.filter((v) => v != null);
+    if (!T.length) return `<div class="zone-temp none">aucune mesure</div>`;
+    const avg = T.reduce((a, b) => a + b, 0) / T.length;
+    return `<div class="zone-temp"><small class="pre">moy.</small>${avg.toFixed(1)}<small>°C</small></div>`;
+  }
+  return c.T != null
+    ? `<div class="zone-temp ${tempCls}">${c.T.toFixed(1)}<small>°C</small></div>`
+    : `<div class="zone-temp none">capteur muet</div>`;
+}
+
 function zoneCard(zone, f, t, marks, nowIdx) {
   const c = zone.current;
   const m = meta(c.action);
@@ -573,7 +596,7 @@ function zoneCard(zone, f, t, marks, nowIdx) {
 
   // Sur la semaine, l'instant cede la place a la fenetre : l'action du moment,
   // son motif et l'anciennete des appareils decrivent un tick parmi mille.
-  const head = view === 'week'
+  const head = isRetro()
     ? weekStats(zone, f, t)
     : `<div class="action ${m.active ? 'is-active' : ''} ${isAlert(c.action) ? 'is-alert' : ''}"
         ${c.reason ? `title="${esc(c.reason)}"` : ''}>
@@ -588,11 +611,9 @@ function zoneCard(zone, f, t, marks, nowIdx) {
       <div>
         <div class="zone-name">${open ? esc(zone.name)
           : `<a class="zlink" href="#zone=${encodeURIComponent(zone.name)}">${esc(zone.name)}</a>`}</div>
-        <div class="zone-sub">${view === 'week' ? '' : sub.join(' · ')}</div>
+        <div class="zone-sub">${isRetro() ? '' : sub.join(' · ')}</div>
       </div>
-      ${c.T != null
-        ? `<div class="zone-temp ${tempCls}">${c.T.toFixed(1)}<small>°C</small></div>`
-        : `<div class="zone-temp none">capteur muet</div>`}
+      ${headline(c, f, tempCls)}
     </div>
     ${head}
     <div class="tracks">
@@ -654,7 +675,8 @@ const kwh = (v) => v.toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' k
 function energyCurve(e) {
   const tarif = e.tarif_kwh_eur;
   const pts = (e.series || []).filter((p) => Array.isArray(p) && p.length === 2);
-  const from = view === 'day' && viewT.length ? dayKey(viewT[viewT.length - 1]) : null;
+  // La courbe suit la fenetre : un jour precis, ou toute la serie sur 7 j.
+  const from = view !== 'week' && viewT.length ? dayKey(viewT[viewT.length - 1]) : null;
   const use = from ? pts.filter((p) => dayKey(p[0]) === from) : pts;
   // Deux points font un segment ; un seul ne fait rien. Le dire plutot que
   // dessiner un trait plat qu'on lirait comme « conso nulle ».
@@ -761,10 +783,23 @@ function buildView(all) {
   if (view === 'week' || !all.length) {
     return { t: all, i0: 0, i1: all.length, padStart: 0, padEnd: 0, nowIdx: -1 };
   }
-  const k = dayKey(all[all.length - 1]);
-  let i0 = all.length;
+  // Bornes de la journee visee : la derniere pour « aujourd'hui », celle d'avant
+  // pour « hier ». On remonte par CLE DE JOUR et non par soustraction de 24 h --
+  // un jour de changement d'heure ne fait pas 24 h, et un trou de service ne
+  // doit pas decaler la journee choisie.
+  let end = all.length;
+  if (view === 'yesterday') {
+    const kToday = dayKey(all[all.length - 1]);
+    while (end > 0 && dayKey(all[end - 1]) === kToday) end--;
+    if (end === 0) {
+      // Le payload ne contient qu'aujourd'hui : rien a montrer pour hier.
+      return { t: [], i0: 0, i1: 0, padStart: 0, padEnd: 0, nowIdx: -1, empty: true };
+    }
+  }
+  const k = dayKey(all[end - 1]);
+  let i0 = end;
   while (i0 > 0 && dayKey(all[i0 - 1]) === k) i0--;
-  const real = all.slice(i0);
+  const real = all.slice(i0, end);
   const step = tickStep(real);
   const CAP = 300;   // garde-fou : un payload aberrant ne doit pas fabriquer 100k creneaux
   const padStart = Math.min(CAP, Math.floor(secsIntoDay(real[0]) / step));
@@ -774,7 +809,9 @@ function buildView(all) {
   t.push(...real);
   const last = real[real.length - 1];
   for (let i = 1; i <= padEnd; i++) t.push(last + i * step);
-  return { t, i0, i1: all.length, padStart, padEnd, nowIdx: padStart + real.length - 1 };
+  // Une journee close n'a pas de « maintenant » a marquer.
+  return { t, i0, i1: end, padStart, padEnd,
+           nowIdx: view === 'day' ? padStart + real.length - 1 : -1 };
 }
 
 // Traits et etiquettes, calcules une fois pour toutes les zones -- et
@@ -899,6 +936,13 @@ function render() {
   $('back').innerHTML = solo && shown.length
     ? '<a class="back" href="#">← toutes les pièces</a>' : '';
 
+  if (v.empty) {
+    $('zones').innerHTML = '<p class="empty">Pas encore de journée complète avant aujourd\'hui.</p>';
+    $('help-body').innerHTML = helpHtml();
+    $('foot-meta').textContent = '';
+    return;
+  }
+
   $('zones').innerHTML = zones.length
     ? zones.map((z) => {
       const f = frameFor(z, all.length, v);
@@ -910,7 +954,8 @@ function render() {
   $('help-body').innerHTML = helpHtml();
 
   $('foot-meta').textContent =
-    `${view === 'day' ? "aujourd'hui" : payload.window_days + ' derniers jours'}`
+    `${view === 'day' ? "aujourd'hui" : view === 'yesterday' ? 'hier'
+        : payload.window_days + ' derniers jours'}`
     + ` · relevé toutes les 10 min · dernier envoi ${hhmm(Math.floor(new Date(payload.generated_at).getTime() / 1000))}`;
 }
 
@@ -1014,13 +1059,15 @@ function helpHtml() {
       pic est le total d'une journée, puisque le compteur repart de zéro à
       minuit. Elle se construit à partir des relevés pris toutes les 10 min :
       un compteur ne donne qu'un cumul instantané, l'historique se fabrique.</li>
-      <li><b>Jour / 7 j</b> — « Jour » est le jour calendaire en cours de la
-      maison, tracé de 00 h à 24 h : la partie à venir reste vide et un trait
-      rouge marque l'heure qu'il est. Le choix est retenu d'une visite à
-      l'autre.</li>
-      <li>Sur <b>7 j</b>, la carte ne montre plus l'action du moment ni son
-      motif — sur mille ticks, c'en est un. Elle affiche à la place ce que la
-      fenêtre dit : température moyenne, amplitude (min → max), et durées de
+      <li><b>Hier / Aujourd'hui / 7 j</b> — des jours calendaires de la maison,
+      tracés de 00 h à 24 h. Sur « Aujourd'hui », la partie à venir reste vide
+      et un trait rouge marque l'heure qu'il est ; « Hier » est une journée
+      close, donc sans trait. Le choix est retenu d'une visite à l'autre.</li>
+      <li>Sur <b>Hier</b> et <b>7 j</b>, la fenêtre est close : la carte ne
+      montre plus l'action du moment ni son motif — ce serait dater de
+      maintenant une information sur avant. Elle affiche à la place ce que la
+      fenêtre dit : température moyenne (le grand chiffre porte alors
+      « moy. »), amplitude min → max, temps hors de l'objectif, et durées de
       marche clim / ventilo.</li>
       <li><b>hors de l'objectif</b> = part de la fenêtre entière — heures inoccupées
       comprises — où la pièce était au-dessus ou en dessous de son objectif,
