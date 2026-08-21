@@ -247,6 +247,13 @@ function trackRow(label, hint, svg) {
     + `<div class="${cls}">${svg}</div></div>`;
 }
 
+// Piste dont la serie manque au payload. Hachuree et libellee, jamais vide :
+// une barre vide se lit « rien ne s'est passe », ce qui est faux.
+function missingRow(label) {
+  return `<div class="track"><span class="tlab">${esc(label)}</span>`
+    + `<div class="tbar tbar-missing"><span>donnée absente</span></div></div>`;
+}
+
 // Time labels under the tracks, from the same mark list the gridlines use.
 // Rendered as one more row of the track grid, with an empty label cell: the
 // axis then sits in the SAME flex column as the plots, by construction. It used
@@ -322,9 +329,46 @@ function weekStats(zone, f, t) {
     `<span class="stat">${lo.toFixed(1)} → ${hi.toFixed(1)}°</span>`,
     `<span class="stat${out / n > .25 ? ' warn' : ''}">hors bande <b>${Math.round((out / n) * 100)} %</b></span>`,
   ];
-  if (zone.has_ac) chips.push(`<span class="stat">clim ${ac ? dur(ac) : '—'}</span>`);
-  if (zone.has_fan) chips.push(`<span class="stat">ventilo ${fan ? dur(fan) : '—'}</span>`);
+  // Serie absente => surtout PAS « clim — », qui affirme qu'elle n'a pas tourne.
+  if (zone.has_ac && f.has.ac) chips.push(`<span class="stat">clim ${ac ? dur(ac) : '—'}</span>`);
+  if (zone.has_fan && f.has.fan) chips.push(`<span class="stat">ventilo ${fan ? dur(fan) : '—'}</span>`);
   return `<div class="devs">${chips.join('')}</div>`;
+}
+
+// L'etat de la piece en francais, construit ICI depuis les memes champs
+// structures que le moteur a utilises (T, bornes de bande, occupation,
+// directive).
+//
+// La `reason` du moteur n'est PAS traduite : c'est une trace de debug en texte
+// libre -- « T=23.7 dans la bande mais > seuil hysteresis -> on maintient
+// (anti-cyclage) », « ext=14.4 <= 15.0, T=23.8 <= bmax=24 -> volet deja en
+// position (current=0.0 ~= 0) ». La faire passer par un traducteur de motifs
+// reviendrait a s'ancrer sur une ressemblance : le jour ou le moteur reformule
+// une phrase, le dashboard afficherait une traduction fausse sans que rien ne
+// casse. Elle reste disponible en `title` sur la ligne d'action, pour
+// l'operateur qui la cherche.
+//
+// Effet de bord voulu : les bornes de la bande redeviennent lisibles sans
+// survol, ce que le retrait de la jauge avait fait perdre sur telephone.
+function plainState(c) {
+  const b = c.band || {};
+  const hasBand = b.min != null && b.max != null;
+  const bits = [];
+  if (hasBand && c.T != null) {
+    const goal = `objectif ${b.min}–${b.max} °C`;
+    if (c.T > b.max) bits.push(`<b>trop chaud</b> — ${goal}`);
+    else if (c.T < b.min) bits.push(`<b>trop froid</b> — ${goal}`);
+    else bits.push(`<b>température OK</b> — ${goal}`);
+  } else if (hasBand) {
+    bits.push(`pas de mesure — objectif ${b.min}–${b.max} °C`);
+  } else {
+    bits.push('pas de mesure');
+  }
+  if (c.directive) bits.push('absence déclarée');
+  else if (c.occupancy_phase === 'off') {
+    bits.push(c.occ_next_start ? `personne ici avant ${esc(c.occ_next_start)}` : 'personne ici');
+  }
+  return bits.join(' · ');
 }
 
 function zoneCard(zone, f, t, marks, nowIdx) {
@@ -341,20 +385,21 @@ function zoneCard(zone, f, t, marks, nowIdx) {
   const devs = [deviceChip('clim', c.ac), deviceChip('ventilo', c.fan),
     c.velux != null ? `<span class="dev ${c.velux > 0 ? 'on' : ''}">volet ${c.velux}%${c.velux_since ? ' · ' + ago(c.velux_since) : ''}</span>` : ''].join('');
 
+  // Occupation et directive sont passees dans plainState ; les repeter ici les
+  // dirait deux fois. Reste ce qui n'y est pas.
   const sub = [];
-  if (!zone.has_ac && !zone.has_fan && !zone.has_velux) sub.push('observation seule');
-  if (c.occupancy_phase === 'off' && c.occ_next_start) sub.push(`occupée à ${esc(c.occ_next_start)}`);
-  if (c.directive) sub.push(`directive : ${esc(c.directive)}`);
-  if (c.day_peak != null) sub.push(`pic du jour ${c.day_peak}°`);
+  if (!zone.has_ac && !zone.has_fan && !zone.has_velux) sub.push('aucun appareil ici');
+  if (c.day_peak != null) sub.push(`plus chaud aujourd'hui : ${c.day_peak}°`);
 
   // Sur la semaine, l'instant cede la place a la fenetre : l'action du moment,
   // son motif et l'anciennete des appareils decrivent un tick parmi mille.
   const head = view === 'week'
     ? weekStats(zone, f, t)
-    : `<div class="action ${m.active ? 'is-active' : ''} ${isAlert(c.action) ? 'is-alert' : ''}">
+    : `<div class="action ${m.active ? 'is-active' : ''} ${isAlert(c.action) ? 'is-alert' : ''}"
+        ${c.reason ? `title="${esc(c.reason)}"` : ''}>
       <span class="emo">${m.emoji}</span><span class="lab">${esc(m.label)}</span>
     </div>
-    ${c.reason ? `<div class="why">${esc(c.reason)}</div>` : ''}
+    <div class="why">${plainState(c)}</div>
     <div class="devs">${devs}</div>`;
 
   return `<section class="zone" data-zone="${esc(zone.name)}">
@@ -369,10 +414,18 @@ function zoneCard(zone, f, t, marks, nowIdx) {
     <div class="tracks">
       ${trackRow('température', 'Trait plein : la pièce. Pointillés : l\'extérieur. Fond vert : la bande de confort.', chartSvg(f, t, marks, nowIdx))}
       ${trackRow('décision', "L'action retenue par le moteur à ce tick — une seule par tick", trackSvg('act', nowIdx, f.act, (a) => a ? { fill: colorFor(a), op: meta(a).active || isAlert(a) ? .95 : PASSIVE_OP } : null))}
-      ${trackRow('occupation', "Phase d'occupation de la zone", trackSvg('occ', nowIdx, f.occ, (v) => occMeta(v)))}
-      ${zone.has_ac ? trackRow('clim', 'Clim en marche sous pilotage du moteur', trackSvg('ac', nowIdx, f.ac, (v) => v ? { fill: 'var(--cool)' } : null)) : ''}
-      ${zone.has_fan ? trackRow('ventilo', 'Ventilo en marche sous pilotage du moteur', trackSvg('fan', nowIdx, f.fan, (v) => v ? { fill: 'var(--fan)' } : null)) : ''}
-      ${zone.has_velux ? trackRow('volet', "Ouverture du volet — hauteur de la barre = % ouvert", trackSvg('velux', nowIdx, f.velux, (v) => v == null ? null : { fill: 'var(--velux)', op: .8, h: Math.max(1.5, (v / 100) * STRIP_H) })) : ''}
+      ${f.has.occ
+        ? trackRow('occupation', "Phase d'occupation de la zone", trackSvg('occ', nowIdx, f.occ, (v) => occMeta(v)))
+        : missingRow('occupation')}
+      ${!zone.has_ac ? '' : f.has.ac
+        ? trackRow('clim', 'Clim en marche sous pilotage du moteur', trackSvg('ac', nowIdx, f.ac, (v) => v ? { fill: 'var(--cool)' } : null))
+        : missingRow('clim')}
+      ${!zone.has_fan ? '' : f.has.fan
+        ? trackRow('ventilo', 'Ventilo en marche sous pilotage du moteur', trackSvg('fan', nowIdx, f.fan, (v) => v ? { fill: 'var(--fan)' } : null))
+        : missingRow('ventilo')}
+      ${!zone.has_velux ? '' : f.has.velux
+        ? trackRow('volet', "Ouverture du volet — hauteur de la barre = % ouvert", trackSvg('velux', nowIdx, f.velux, (v) => v == null ? null : { fill: 'var(--velux)', op: .8, h: Math.max(1.5, (v / 100) * STRIP_H) }))
+        : missingRow('volet')}
       ${axisHtml(t, marks, nowIdx)}
     </div>
   </section>`;
@@ -509,9 +562,13 @@ function frameFor(zone, n, v) {
     out: pad((payload.outdoor?.T || []).slice(v.i0, v.i1)),
     bmin: cut(ser.bmin), bmax: cut(ser.bmax),
     act: pad(expand(zone.runs || [], n).slice(v.i0, v.i1)),
-    // Optional: a container still serving a payload from before the tracks
-    // were exported must degrade to empty rows, not to a broken page.
     occ: cut(ser.occ), ac: cut(ser.ac), fan: cut(ser.fan), velux: cut(ser.velux),
+    // Quelles series le payload portait REELLEMENT. Un conteneur qui sert
+    // encore un fichier d'avant les pistes dessinait des barres vides --
+    // indistinguables d'une journee ou la clim n'a jamais tourne. L'absence de
+    // donnee ne doit jamais se lire comme une absence d'activite : la piste dit
+    // « donnee absente » au lieu de se dessiner vide.
+    has: { occ: 'occ' in ser, ac: 'ac' in ser, fan: 'fan' in ser, velux: 'velux' in ser },
   };
 }
 

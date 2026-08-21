@@ -98,7 +98,8 @@ body {
 
 .action { display: flex; align-items: baseline; gap: .35rem; margin: .6rem 0 .1rem; font-size: .86rem; }
 .action .emo { font-size: 1rem; flex: 0 0 auto; }
-.why { color: var(--ink-dim); font-size: .78rem; margin-top: .1rem; }
+.why { color: var(--ink-dim); font-size: .8rem; margin-top: .15rem; }
+.why b { color: var(--ink); font-weight: 620; }
 .action.is-active .lab { color: var(--ink); font-weight: 600; }
 .action.is-alert .lab { color: var(--alert); font-weight: 600; }
 
@@ -142,6 +143,15 @@ body {
    sans le fond ni l'arrondi : un trace, pas une barre. `relative` porte les
    graduations de l'ordonnee, posees en HTML au-dessus du SVG. */
 .tplot { flex: 1 1 auto; min-width: 0; position: relative; }
+
+/* Série absente du payload : hachures + libellé, jamais une barre vide — une
+   barre vide affirme que rien ne s'est passé, ce qui est une autre information. */
+.tbar-missing {
+  display: flex; align-items: center; justify-content: center;
+  background: repeating-linear-gradient(135deg,
+    var(--card-2) 0 6px, var(--card) 6px 12px);
+}
+.tbar-missing span { font-size: .6rem; color: var(--ink-dim); letter-spacing: .02em; }
 
 /* Chiffres de l'ordonnee. En HTML et non en <text> SVG : le graphe est etire
    horizontalement (viewBox 1000 pour ~240 px), un texte dedans serait comprime
