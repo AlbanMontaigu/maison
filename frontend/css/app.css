@@ -1,29 +1,45 @@
 /* Mobile-first: this dashboard is read on a phone far more often than on a
-   desktop, so the phone layout is the base and the wide layout is the override. */
+   desktop, so the phone layout is the base and the wide layout is the override.
+
+   Light on purpose, and light only. This page is read in a lit room, often in
+   daylight through a window, and often by someone who is not its author -- a
+   dark surface with thin coloured strips was legible to whoever built it and to
+   nobody else. Every colour below is picked for contrast on white, not
+   translated from the dark palette: the blues and oranges that glowed on #11151c
+   are washed out on #fff, so they are darkened rather than reused.
+
+   All colour lives here, including the band tint the chart paints (--band-fill):
+   the SVG is generated in JS but must not carry its own palette, or a restyle
+   means editing two files and one of them silently keeps the old theme. */
 :root {
-  --bg: #11151c;
-  --card: #1a2029;
-  --card-2: #222a35;
-  --ink: #e8edf4;
-  --ink-dim: #93a1b3;
-  --line: #2d3745;
-  --cool: #4aa8ff;
-  --warm: #ff9d4a;
-  --neutral: #6b7a8d;
-  --alert: #ff5c5c;
-  --ok: #46d18b;
-  --band: #46d18b;
-  --fan: #4fd6c4;
-  --occ: #b08cff;
-  --velux: #8fa3bb;
+  --bg: #f2f5f9;
+  --card: #ffffff;
+  --card-2: #e7ecf3;
+  --ink: #16202e;
+  --ink-dim: #5a6b80;
+  --line: #d3dbe6;
+  --edge: #dde4ee;
+
+  /* Series colours, all at 4.5:1 or better against --card. */
+  --cool: #1668c9;
+  --warm: #c05600;
+  --neutral: #7b8899;
+  --alert: #c0392b;
+  --ok: #16794a;
+  --band: #16794a;
+  --band-fill: rgba(22, 121, 74, .13);
+  --band-strong: rgba(22, 121, 74, .26);
+  --fan: #0d7f78;
+  --occ: #6d3fc4;
+  --velux: #5f7492;
 }
 * { box-sizing: border-box; }
 body {
   margin: 0;
-  padding: 0 .75rem 2rem;
+  padding: 0 .75rem 2.5rem;
   background: var(--bg);
   color: var(--ink);
-  font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   -webkit-text-size-adjust: 100%;
 }
 
@@ -32,18 +48,19 @@ body {
   gap: .5rem; flex-wrap: wrap;
   padding: 1rem .25rem .75rem;
   position: sticky; top: 0; z-index: 5;
-  background: linear-gradient(var(--bg) 75%, transparent);
+  background: linear-gradient(var(--bg) 78%, transparent);
 }
-.top h1 { margin: 0; font-size: 1.15rem; font-weight: 650; letter-spacing: .02em; }
-.top-meta { display: flex; gap: .4rem; flex-wrap: wrap; }
+.top h1 { margin: 0; font-size: 1.2rem; font-weight: 680; letter-spacing: .01em; }
+.top-meta { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
 
 .pill {
-  font-size: .75rem; padding: .2rem .55rem; border-radius: 999px;
-  background: var(--card-2); color: var(--ink-dim); white-space: nowrap;
+  font-size: .78rem; padding: .25rem .6rem; border-radius: 999px;
+  background: var(--card); border: 1px solid var(--edge);
+  color: var(--ink-dim); white-space: nowrap;
 }
 .pill-out { color: var(--ink); }
-.pill.stale { background: #4a2020; color: #ffb4b4; }
-.pill.fresh { background: #1d3a2c; color: var(--ok); }
+.pill.stale { background: #fdecea; border-color: #f3c4bd; color: #a5281a; font-weight: 560; }
+.pill.fresh { background: #e7f4ed; border-color: #b9dfcb; color: var(--ok); }
 
 /* minmax(0,1fr), not 1fr: a grid track defaults to min-width:auto, so the
    charts (viewBox 1000 wide) would impose their intrinsic width on the card and
@@ -53,107 +70,124 @@ body {
 @media (min-width: 720px) { .zones { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (min-width: 1180px) { .zones { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 
-.zone { background: var(--card); border-radius: 14px; padding: .8rem .85rem .6rem; min-width: 0; }
+/* A border, not just a fill: white cards on a near-white page need an edge to
+   read as cards at all. The shadow alone disappears on a cheap phone screen. */
+.zone {
+  background: var(--card); border: 1px solid var(--edge); border-radius: 14px;
+  padding: .85rem .9rem .7rem; min-width: 0;
+  box-shadow: 0 1px 2px rgba(22, 32, 46, .05);
+}
 .zone-head { display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem; }
 .zone-head > div:first-child { min-width: 0; }
-.zone-name { font-weight: 620; font-size: .95rem; }
-.zone-sub { color: var(--ink-dim); font-size: .72rem; margin-top: .1rem; }
-.zone-temp { flex: 0 0 auto; font-size: 1.7rem; font-weight: 300; line-height: 1; font-variant-numeric: tabular-nums; }
+.zone-name { font-weight: 660; font-size: 1rem; }
+.zone-sub { color: var(--ink-dim); font-size: .76rem; margin-top: .15rem; }
+.zone-temp { flex: 0 0 auto; font-size: 1.85rem; font-weight: 400; line-height: 1; font-variant-numeric: tabular-nums; }
 .zone-temp small { font-size: .8rem; color: var(--ink-dim); }
 .zone-temp.hot { color: var(--warm); }
 .zone-temp.cold { color: var(--cool); }
 
-.action { display: flex; align-items: center; gap: .35rem; margin: .55rem 0 .1rem; font-size: .82rem; }
-.action .emo { font-size: .95rem; }
-.action .why { color: var(--ink-dim); font-size: .72rem; }
-.action.is-active .lab { color: var(--ink); font-weight: 560; }
-.action.is-alert .lab { color: var(--alert); }
+.action { display: flex; align-items: baseline; gap: .35rem; margin: .6rem 0 .1rem; font-size: .86rem; }
+.action .emo { font-size: 1rem; flex: 0 0 auto; }
+.why { color: var(--ink-dim); font-size: .78rem; margin-top: .1rem; }
+.action.is-active .lab { color: var(--ink); font-weight: 600; }
+.action.is-alert .lab { color: var(--alert); font-weight: 600; }
 
-.devs { display: flex; gap: .3rem; flex-wrap: wrap; margin: .45rem 0 .1rem; }
+.devs { display: flex; gap: .3rem; flex-wrap: wrap; margin: .5rem 0 .1rem; }
 .dev {
-  font-size: .68rem; padding: .15rem .45rem; border-radius: 6px;
+  font-size: .74rem; padding: .18rem .5rem; border-radius: 6px;
   background: var(--card-2); color: var(--ink-dim);
 }
-.dev.on { background: #123049; color: var(--cool); }
-.dev.fail { background: #4a2020; color: #ffb4b4; }
+.dev.on { background: #e4eefb; color: var(--cool); font-weight: 560; }
+.dev.fail { background: #fdecea; color: #a5281a; font-weight: 560; }
 
 /* Band gauge: where the room sits inside its comfort band, at a glance. */
-.gauge { height: 4px; border-radius: 3px; background: var(--card-2); position: relative; margin: .5rem 0 .1rem; }
-.gauge .in { position: absolute; top: 0; bottom: 0; background: rgba(70,209,139,.28); border-radius: 3px; }
-.gauge .cur { position: absolute; top: -3px; width: 2px; height: 10px; background: var(--ink); border-radius: 2px; }
-.gauge-lab { display: flex; justify-content: space-between; font-size: .64rem; color: var(--ink-dim); }
+.gauge { height: 5px; border-radius: 3px; background: var(--card-2); position: relative; margin: .55rem 0 .15rem; }
+.gauge .in { position: absolute; top: 0; bottom: 0; background: var(--band-strong); border-radius: 3px; }
+.gauge .cur { position: absolute; top: -3px; width: 2px; height: 11px; background: var(--ink); border-radius: 2px; }
+.gauge-lab { display: flex; justify-content: space-between; font-size: .7rem; color: var(--ink-dim); }
 
-.chart { width: 100%; height: 110px; display: block; margin-top: .35rem; touch-action: pan-y; }
-.strip { width: 100%; height: 14px; display: block; }
+.chart { width: 100%; height: 120px; display: block; margin-top: .4rem; touch-action: pan-y; }
+.strip { width: 100%; height: 16px; display: block; }
 
 /* One labelled row per actuator. The label column is fixed so every track in
    every card starts on the same x -- otherwise "occupation" and "clim" would
    draw the same instant at different pixels and the stack stops being readable
    as a vertical slice of time. */
-.tracks { margin-top: .3rem; }
-.track { display: flex; align-items: center; gap: .4rem; margin-top: 2px; }
+.tracks { margin-top: .35rem; }
+.track { display: flex; align-items: center; gap: .45rem; margin-top: 3px; }
 .tlab {
-  flex: 0 0 3.6rem; font-size: .6rem; line-height: 1; color: var(--ink-dim);
+  flex: 0 0 4.6rem; font-size: .72rem; line-height: 1.2; color: var(--ink-dim);
   text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.tbar { flex: 1 1 auto; min-width: 0; background: var(--card-2); border-radius: 2px; overflow: hidden; }
-/* Same 3.6rem + gap offset as the label column, so a "12h" label sits under
+.tbar {
+  flex: 1 1 auto; min-width: 0; background: var(--card-2);
+  border-radius: 3px; overflow: hidden;
+}
+/* Same 4.6rem + gap offset as the label column, so a "12h" label sits under
    the gridline it names rather than under the card's edge. */
 .axis {
-  position: relative; height: .85rem; margin-left: calc(3.6rem + .4rem);
-  font-size: .58rem; color: var(--ink-dim);
+  position: relative; height: 1rem; margin-left: calc(4.6rem + .45rem);
+  font-size: .68rem; color: var(--ink-dim);
 }
-.axis span { position: absolute; top: 1px; transform: translateX(-50%); white-space: nowrap; }
+.axis span { position: absolute; top: 2px; transform: translateX(-50%); white-space: nowrap; }
 
-.seg { display: inline-flex; background: var(--card-2); border-radius: 999px; padding: 2px; }
+.seg {
+  display: inline-flex; background: var(--card-2); border-radius: 999px;
+  padding: 3px; border: 1px solid var(--edge);
+}
 .seg button {
   appearance: none; border: 0; background: transparent; color: var(--ink-dim);
-  font: inherit; font-size: .7rem; padding: .15rem .6rem; border-radius: 999px;
+  font: inherit; font-size: .78rem; padding: .2rem .7rem; border-radius: 999px;
   cursor: pointer; line-height: 1.3;
 }
-.seg button.on { background: var(--line); color: var(--ink); font-weight: 560; }
+.seg button.on {
+  background: var(--card); color: var(--ink); font-weight: 600;
+  box-shadow: 0 1px 2px rgba(22, 32, 46, .12);
+}
 
 /* Folded by default: the legend must be reachable on a phone -- where nothing
    hovers, so the title attributes on the track labels are unreadable -- without
    pushing the house itself below the fold. */
 .help {
-  margin-top: 1.25rem; background: var(--card); border-radius: 14px;
-  padding: .1rem .85rem; font-size: .78rem; color: var(--ink-dim);
+  margin-top: 1.25rem; background: var(--card); border: 1px solid var(--edge);
+  border-radius: 14px; padding: .1rem .9rem;
+  font-size: .84rem; color: var(--ink-dim);
 }
 .help summary {
-  cursor: pointer; padding: .7rem 0; font-size: .8rem; color: var(--ink);
-  font-weight: 560; list-style-position: inside;
+  cursor: pointer; padding: .8rem 0; font-size: .88rem; color: var(--ink);
+  font-weight: 620; list-style-position: inside;
 }
-.help h3 { margin: .9rem 0 .3rem; font-size: .74rem; color: var(--ink); font-weight: 600; }
-.help p { margin: .3rem 0; }
-.help ul { margin: .3rem 0 .6rem; padding-left: 1.1rem; }
-.help li { margin: .25rem 0; }
-.help b { color: var(--ink); font-weight: 560; }
-.help em { font-style: normal; color: var(--ink); }
-.help > div { padding-bottom: .7rem; }
-.chips { display: flex; flex-wrap: wrap; gap: .3rem; margin: .3rem 0 .6rem; }
+.help h3 { margin: 1rem 0 .35rem; font-size: .82rem; color: var(--ink); font-weight: 660; }
+.help p { margin: .35rem 0; }
+.help ul { margin: .35rem 0 .7rem; padding-left: 1.15rem; }
+.help li { margin: .3rem 0; }
+.help b { color: var(--ink); font-weight: 600; }
+.help em { font-style: normal; color: var(--ink); font-weight: 560; }
+.help > div { padding-bottom: .8rem; }
+.chips { display: flex; flex-wrap: wrap; gap: .35rem; margin: .35rem 0 .7rem; }
 .chip {
-  display: inline-flex; align-items: center; gap: .25rem;
-  font-size: .68rem; padding: .15rem .45rem; border-radius: 6px;
+  display: inline-flex; align-items: center; gap: .3rem;
+  font-size: .76rem; padding: .2rem .5rem; border-radius: 6px;
   background: var(--card-2); color: var(--ink-dim); white-space: nowrap;
 }
-.chip i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; flex: 0 0 auto; }
+.chip i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; flex: 0 0 auto; }
 
 .foot {
   display: flex; justify-content: space-between; align-items: center; gap: .75rem;
-  flex-wrap: wrap; margin-top: 1.25rem; padding: 0 .25rem;
-  font-size: .68rem; color: var(--ink-dim);
+  flex-wrap: wrap; margin-top: 1rem; padding: 0 .25rem;
+  font-size: .76rem; color: var(--ink-dim);
 }
-.legend { display: flex; gap: .6rem; flex-wrap: wrap; }
-.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: .25rem; vertical-align: -1px; }
+.legend { display: flex; gap: .7rem; flex-wrap: wrap; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: .3rem; vertical-align: -1px; }
 
 .tip {
   position: fixed; z-index: 20; pointer-events: none;
-  background: #0b0e13; border: 1px solid var(--line); border-radius: 8px;
-  padding: .35rem .5rem; font-size: .7rem; line-height: 1.35; white-space: nowrap;
-  box-shadow: 0 6px 20px rgba(0,0,0,.45);
+  background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+  color: var(--ink);
+  padding: .4rem .55rem; font-size: .78rem; line-height: 1.4; white-space: nowrap;
+  box-shadow: 0 6px 20px rgba(22, 32, 46, .18);
 }
-.tip b { font-weight: 600; }
+.tip b { font-weight: 620; }
 .tip .dim { color: var(--ink-dim); }
 
 .empty { color: var(--ink-dim); padding: 2rem .25rem; text-align: center; }

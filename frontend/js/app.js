@@ -13,6 +13,8 @@
 const REFRESH_MS = 60_000;
 const PLOT_W = 1000, PLOT_H = 110, STRIP_H = 14;
 const VIEW_KEY = 'maison.view';
+// Alpha of a passive action (waiting, out of occupancy) on the decision track.
+const PASSIVE_OP = .45;
 
 let payload = null;
 // 'day' | 'week'. The day is the default because that is the question actually
@@ -91,7 +93,7 @@ function colorFor(action) {
 const OCC_META = {
   window:  { fill: 'var(--occ)',  op: .95, label: 'occupée' },
   precool: { fill: 'var(--cool)', op: .70, label: 'pré-refroidissement' },
-  always:  { fill: 'var(--occ)',  op: .28, label: 'permanente' },
+  always:  { fill: 'var(--occ)',  op: .40, label: 'permanente' },
   off:     { fill: null,                   label: 'vide' },
 };
 const occMeta = (v) => OCC_META[v] || { fill: null, label: v || '—' };
@@ -150,7 +152,7 @@ function chartSvg(f, t, marks) {
 
   return `<svg class="chart" viewBox="0 0 ${PLOT_W} ${PLOT_H}" preserveAspectRatio="none" aria-hidden="true">
     ${seps}
-    ${bandPath ? `<path d="${bandPath}" fill="rgba(70,209,139,.13)"/>` : ''}
+    ${bandPath ? `<path d="${bandPath}" fill="var(--band-fill)"/>` : ''}
     <path d="${line(out)}" fill="none" stroke="var(--ink-dim)" stroke-width="1" stroke-dasharray="3 3" opacity=".55" vector-effect="non-scaling-stroke"/>
     <path d="${line(T)}" fill="none" stroke="var(--ink)" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
   </svg>`;
@@ -245,12 +247,12 @@ function zoneCard(zone, f, t, marks) {
     ${gauge}
     <div class="action ${m.active ? 'is-active' : ''} ${isAlert(c.action) ? 'is-alert' : ''}">
       <span class="emo">${m.emoji}</span><span class="lab">${esc(m.label)}</span>
-      <span class="why">— ${esc(c.reason || '')}</span>
     </div>
+    ${c.reason ? `<div class="why">${esc(c.reason)}</div>` : ''}
     <div class="devs">${devs}</div>
     ${chartSvg(f, t, marks)}
     <div class="tracks">
-      ${trackRow('décision', "L'action retenue par le moteur à ce tick — une seule par tick", trackSvg('act', f.act, (a) => a ? { fill: colorFor(a), op: meta(a).active || isAlert(a) ? .95 : .3 } : null))}
+      ${trackRow('décision', "L'action retenue par le moteur à ce tick — une seule par tick", trackSvg('act', f.act, (a) => a ? { fill: colorFor(a), op: meta(a).active || isAlert(a) ? .95 : PASSIVE_OP } : null))}
       ${trackRow('occupation', "Phase d'occupation de la zone", trackSvg('occ', f.occ, (v) => occMeta(v)))}
       ${zone.has_ac ? trackRow('clim', 'Clim en marche sous pilotage du moteur', trackSvg('ac', f.ac, (v) => v ? { fill: 'var(--cool)' } : null)) : ''}
       ${zone.has_fan ? trackRow('ventilo', 'Ventilo en marche sous pilotage du moteur', trackSvg('fan', f.fan, (v) => v ? { fill: 'var(--fan)' } : null)) : ''}
@@ -343,7 +345,7 @@ function render() {
   $('legend').innerHTML = [['var(--cool)', 'froid / clim'], ['var(--warm)', 'chaud'],
     ['var(--fan)', 'ventilo'], ['var(--occ)', 'occupation'],
     ['var(--velux)', 'volet'], ['var(--alert)', 'échec'],
-    ['rgba(70,209,139,.4)', 'bande de confort']]
+    ['var(--band)', 'bande de confort']]
     .map(([c, l]) => `<span><i style="background:${c}"></i>${l}</span>`).join('');
 
   $('help-body').innerHTML = helpHtml();
