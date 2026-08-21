@@ -186,9 +186,10 @@ function chartSvg(f, t, marks, nowIdx) {
   const n = t.length;
   const T = f.T, bmin = f.bmin, bmax = f.bmax, out = f.out;
 
+  const outFc = (f.fc && f.fc.out) || [];
   const vals = [];
   for (let i = 0; i < n; i++) {
-    for (const v of [T[i], bmin[i], bmax[i], out[i]]) if (v != null) vals.push(v);
+    for (const v of [T[i], bmin[i], bmax[i], out[i], outFc[i]]) if (v != null) vals.push(v);
   }
   if (!vals.length) return '';
   let lo = Math.min(...vals), hi = Math.max(...vals);
@@ -256,6 +257,7 @@ function chartSvg(f, t, marks, nowIdx) {
     ${seps}
     ${bandPath ? `<path d="${bandPath}" fill="var(--band-fill)"/>` : ''}
     <path d="${line(out)}" fill="none" stroke="var(--ink-dim)" stroke-width="1" stroke-dasharray="3 3" opacity=".55" vector-effect="non-scaling-stroke"/>
+    <path d="${line(outFc)}" fill="none" stroke="var(--ink-dim)" stroke-width="1" stroke-dasharray="1 3" opacity=".45" vector-effect="non-scaling-stroke"/>
     <path d="${line(T)}" fill="none" stroke="var(--ink)" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
     ${nowMark(nowIdx, n, PLOT_H)}
     <line x1="0" y1="${PLOT_H}" x2="${PLOT_W}" y2="${PLOT_H}" stroke="var(--ink-dim)" stroke-width="1" vector-effect="non-scaling-stroke"/>
@@ -312,9 +314,10 @@ function nowMark(nowIdx, n, h) {
 // fenetre), pas la meteo : au meme instant une chambre peu exposee prend 34
 // W/m² quand la mezzanine en prend 274. C'est cette courbe-la qui explique
 // pourquoi une piece chauffe et pas sa voisine.
-function sunSvg(values, nowIdx, marks) {
+function sunSvg(values, nowIdx, marks, fc) {
   const n = values.length;
-  const known = values.filter((v) => v != null);
+  const fcv = fc || [];
+  const known = [...values, ...fcv].filter((v) => v != null);
   if (!known.length) return '';
   // Echelle bornee par le seuil du moteur : sans plancher, une journee sans
   // soleil se dessinerait comme une belle journee, faute de reference.
@@ -339,8 +342,22 @@ function sunSvg(values, nowIdx, marks) {
   const hiLine = `<line x1="0" y1="${y(SOLAR_HIGH).toFixed(1)}" x2="${PLOT_W}" y2="${y(SOLAR_HIGH).toFixed(1)}"`
     + ` stroke="var(--warm)" stroke-width="1" stroke-dasharray="3 4" opacity=".7" vector-effect="non-scaling-stroke"/>`;
 
+  // Meme geometrie, style different : aire plus pale et trait pointille. La
+  // prevision doit se voir comme une prevision sans avoir a lire la legende.
+  let fd = '', fa = '', fopen = false;
+  for (let i = 0; i < n; i++) {
+    if (fcv[i] == null) { fopen = false; continue; }
+    if (!fopen) { fa += `M${x(i).toFixed(1)},${SUN_H}L`; fd += 'M'; fopen = true; }
+    else { fa += 'L'; fd += 'L'; }
+    const pt = `${x(i).toFixed(1)},${y(fcv[i]).toFixed(1)}`;
+    fa += pt; fd += pt;
+  }
+  if (fopen) fa += `L${x(n - 1).toFixed(1)},${SUN_H}Z`;
+
   return `<svg class="sun" data-track="solar" viewBox="0 0 ${PLOT_W} ${SUN_H}" preserveAspectRatio="none" aria-hidden="true">`
-    + `${seps}<path d="${area}" fill="var(--sun-fill)"/>`
+    + `${seps}${fa ? `<path d="${fa}" fill="var(--sun-fill)" opacity=".45"/>` : ''}`
+    + `${fd ? `<path d="${fd}" fill="none" stroke="var(--sun)" stroke-width="1.2" stroke-dasharray="2 3" opacity=".75" vector-effect="non-scaling-stroke"/>` : ''}`
+    + `<path d="${area}" fill="var(--sun-fill)"/>`
     + `<path d="${d}" fill="none" stroke="var(--sun)" stroke-width="1.4" vector-effect="non-scaling-stroke"/>`
     + `${hiLine}${nowMark(nowIdx, n, SUN_H)}</svg>`
     // Quand le maximum du jour frole le seuil, les deux etiquettes se
@@ -618,7 +635,7 @@ function zoneCard(zone, f, t, marks, nowIdx) {
     ${head}
     <div class="tracks">
       ${trackRow('température', 'Trait plein : la pièce. Pointillés : dehors. Fond vert : l\'objectif de température.', chartSvg(f, t, marks, nowIdx))}
-      ${(() => { const sun = f.has.solar ? sunSvg(f.solar, nowIdx, marks) : '';
+      ${(() => { const sun = f.has.solar ? sunSvg(f.solar, nowIdx, marks, f.fc && f.fc.solar) : '';
           return sun ? trackRow('soleil', 'Rayonnement reçu par la fenêtre de cette pièce, en W/m²', sun) : ''; })()}
       ${trackRow('décision', "Ce que la maison a décidé de faire à cet instant — une seule chose à la fois", trackSvg('act', nowIdx, f.act, (a) => a ? { fill: colorFor(a), op: meta(a).active || isAlert(a) ? .95 : PASSIVE_OP } : null))}
       ${f.has.occ
@@ -854,6 +871,46 @@ function viewMarks(t) {
 // The payload ships every track run-length encoded over the full window; the
 // view slices them. Held in `frames` so the tooltip reads exactly what is drawn
 // -- computing it twice is how an off-by-one between chart and readout starts.
+// Valeur prevue a un instant, interpolee entre les deux heures qui l'encadrent.
+// La prevision est horaire, la grille du dashboard est a 10 min : sans
+// interpolation la courbe serait un escalier, qu'on lirait comme des paliers
+// reels alors que ce n'est qu'un pas d'echantillonnage.
+function forecastAt(ts, times, values) {
+  if (!times || !times.length) return null;
+  if (ts < times[0] || ts > times[times.length - 1]) return null;
+  for (let i = 1; i < times.length; i++) {
+    if (ts > times[i]) continue;
+    const a = values[i - 1], b = values[i];
+    if (a == null || b == null) return null;
+    const span = times[i] - times[i - 1];
+    return span ? a + (b - a) * ((ts - times[i - 1]) / span) : a;
+  }
+  return null;
+}
+
+// Series PREVUES, tenues a part des mesurees et jamais fusionnees avec elles :
+// c'est ce qui permet de les dessiner autrement, et d'etre sur qu'on ne fera
+// jamais une moyenne ou un « hors objectif » sur de la prevision.
+function forecastArrays(zoneName, tl, nowIdx) {
+  const fc = payload.forecast;
+  const empty = { out: [], solar: [] };
+  if (!fc || nowIdx < 0 || view !== 'day') return empty;
+  const solarSrc = (fc.solar || {})[zoneName];
+  const out = new Array(tl.length).fill(null);
+  const solar = new Array(tl.length).fill(null);
+  for (let i = nowIdx; i < tl.length; i++) {
+    const v = forecastAt(tl[i], fc.t, fc.outdoor);
+    if (v != null) out[i] = Math.round(v * 10) / 10;
+    if (solarSrc) {
+      const sv = forecastAt(tl[i], fc.t, solarSrc);
+      if (sv != null) solar[i] = Math.round(sv);
+    }
+  }
+  // On raccroche la prevision au dernier point mesure, sinon les deux traces
+  // se touchent sans se rejoindre et on lit une rupture qui n'existe pas.
+  return { out, solar };
+}
+
 function frameFor(zone, n, v) {
   const ser = zone.series || {};
   const pad = (arr) => [...Array(v.padStart).fill(null), ...arr, ...Array(v.padEnd).fill(null)];
@@ -872,6 +929,7 @@ function frameFor(zone, n, v) {
     // « donnee absente » au lieu de se dessiner vide.
     has: { occ: 'occ' in ser, ac: 'ac' in ser, fan: 'fan' in ser, velux: 'velux' in ser,
            solar: 'solar' in ser },
+    fc: forecastArrays(zone.name, v.t, v.nowIdx),
   };
 }
 
@@ -998,6 +1056,18 @@ function helpHtml() {
     est propre à chaque pièce et s'ajuste à ce qu'elle a vécu sur la fenêtre —
     deux cartes voisines ne sont donc pas à la même échelle. En abscisse, le
     temps, partagé au pixel près avec les pistes du dessous.</p>
+
+    <h3>Ce qui n'a pas encore eu lieu</h3>
+    <p>Sur « Aujourd'hui », la fin de journée est tracée en <em>pointillés
+    fins</em> : c'est la météo, pas une mesure. Deux courbes seulement — la
+    température dehors, et le soleil attendu sur la fenêtre de chaque pièce
+    (même calcul que pour le présent, donc une pièce peu exposée reste peu
+    exposée dans la prévision).</p>
+    <p>La température <em>intérieure</em> n'est pas prévue, et les décisions à
+    venir non plus. Il faudrait un modèle pour la première, et la seconde
+    dépend de ce que la maison verra vraiment. Une courbe modélisée posée à
+    côté de courbes mesurées se lirait comme une mesure — les pistes restent
+    donc vides à droite du trait rouge.</p>
 
     <h3>Les pistes</h3>
     <p>Chaque ligne est une lecture verticale du même axe de temps que la courbe.
@@ -1223,9 +1293,17 @@ function bindTip() {
     // une heure qui n'a pas encore eu lieu -- le dire evite de lire un trou de
     // service la ou il n'y a que le futur.
     const ahead = viewNowIdx >= 0 && i > viewNowIdx;
-    tip.innerHTML = `<b>${dayLabel(t[i])} ${hhmm(t[i])}</b><br>`
-      + (ahead ? '<span class="dim">à venir</span>'
-               : tipFor(svg.dataset.track || 'chart', f, i, t));
+    const track = svg.dataset.track || 'chart';
+    // Au-dela du marqueur on n'a que de la prevision -- et seulement pour le
+    // dehors et le soleil. Le reste n'a pas eu lieu, et on le dit.
+    let body;
+    if (!ahead) body = tipFor(track, f, i, t);
+    else if (track === 'solar' && f.fc && f.fc.solar && f.fc.solar[i] != null) {
+      body = `soleil prévu : <b>${f.fc.solar[i]} W/m²</b><br><span class="dim">prévision météo</span>`;
+    } else if (track === 'chart' && f.fc && f.fc.out && f.fc.out[i] != null) {
+      body = `dehors, prévu : <b>${f.fc.out[i].toFixed(1)}°</b><br><span class="dim">prévision météo</span>`;
+    } else body = '<span class="dim">à venir</span>';
+    tip.innerHTML = `<b>${dayLabel(t[i])} ${hhmm(t[i])}</b><br>` + body;
     tip.hidden = false;
     placeCursor(card, svg, i, t.length);
     // Keep the readout on screen near the right edge of a phone.
