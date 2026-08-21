@@ -527,6 +527,7 @@ function zoneCard(zone, f, t, marks, nowIdx) {
         ? trackRow('volet', "Ouverture du volet — hauteur de la barre = % ouvert", trackSvg('velux', nowIdx, f.velux, (v) => v == null ? null : { fill: 'var(--velux)', op: .8, h: Math.max(1.5, (v / 100) * STRIP_H) }))
         : missingRow('volet')}
       ${axisHtml(t, marks, nowIdx)}
+      <div class="cursor" hidden></div>
     </div>
   </section>`;
 }
@@ -681,6 +682,7 @@ function render() {
   const marks = viewMarks(t);
   viewT = t;
   viewNowIdx = v.nowIdx;
+  shownCursor = null;   // les cartes vont etre remplacees
   frames.clear();
   const eng = payload.engine || {};
 
@@ -734,12 +736,6 @@ function render() {
     }).join('')
     : '<p class="empty">Aucune zone dans les données.</p>';
 
-  $('legend').innerHTML = [['var(--cool)', 'refroidir / clim'], ['var(--warm)', 'réchauffer'],
-    ['var(--fan)', 'ventilo'], ['var(--occ)', 'quelqu\'un dans la pièce'],
-    ['var(--velux)', 'volet'], ['var(--alert)', 'panne'],
-    ['var(--band)', 'objectif de température']]
-    .map(([c, l]) => `<span><i style="background:${c}"></i>${l}</span>`).join('');
-
   $('help-body').innerHTML = helpHtml();
 
   $('foot-meta').textContent =
@@ -790,11 +786,14 @@ function helpHtml() {
     <h3>Les pistes</h3>
     <p>Chaque ligne est une lecture verticale du même axe de temps que la courbe.
     Survoler une ligne (ou y poser le doigt) affiche une bulle propre à
-    <em>cette</em> ligne : sa valeur à cet instant, et depuis quand elle dure.</p>
+    <em>cette</em> ligne : sa valeur à cet instant, et depuis quand elle dure.
+    Un trait vertical gris suit le pointeur et traverse toute la pile — il se
+    pose sur le relevé décrit par la bulle, pas exactement sous le doigt, pour
+    que les deux ne se contredisent pas.</p>
     <ul>
       <li><b>décision</b> — ce que la maison a décidé à cet instant, <em>une seule
       action à la fois</em>. C'est la ligne qui porte le pourquoi (le texte au
-      dessus de la courbe) et les échecs de driver. Bleu : action de
+      dessus de la courbe) et les pannes d'appareil. Bleu : action de
       refroidissement. Orange : de chauffage. Gris : neutre. Rouge : échec.
       Translucide : action passive (en attente, hors occupation).</li>
       <li><b>soleil</b> — le rayonnement qui frappe la fenêtre de <em>cette</em>
@@ -811,6 +810,13 @@ function helpHtml() {
       <li><b>volet</b> — la hauteur de la barre est le pourcentage d'ouverture.
       Barre pleine = grand ouvert, ligne fine = fermé.</li>
     </ul>
+
+    <h3>Les couleurs</h3>
+    <div class="chips">${[['var(--cool)', 'refroidir / clim'], ['var(--warm)', 'réchauffer'],
+      ['var(--fan)', 'ventilo'], ['var(--occ)', "quelqu'un dans la pièce"],
+      ['var(--velux)', 'volet'], ['var(--sun)', 'soleil'], ['var(--alert)', 'panne'],
+      ['var(--band)', 'objectif de température'], ['var(--now)', "l'heure qu'il est"]]
+      .map(([c, l]) => `<span class="chip"><i style="background:${c}"></i>${l}</span>`).join('')}</div>
 
     <h3>Occupation</h3>
     <div class="chips">${occ}</div>
@@ -829,9 +835,9 @@ function helpHtml() {
       fenêtre dit : température moyenne, amplitude (min → max), et durées de
       marche clim / ventilo.</li>
       <li><b>hors de l'objectif</b> = part de la fenêtre entière — heures inoccupées
-      comprises — où la pièce était au-dessus du haut de bande ou en dessous du
-      bas, comparée à la bande <em>de ce moment-là</em> et non à un seuil fixe.
-      La restreindre aux seules heures d'occupation a été mesuré : au plus
+      comprises — où la pièce était au-dessus ou en dessous de son objectif,
+      comparée à l'objectif <em>de ce moment-là</em> et non à un seuil fixe.
+      La restreindre aux seules heures d'occupation a été mesurée : au plus
       7 points d'écart, donc le chiffre simple suffit. Il vire à l'orange
       au-delà de 25 %.</li>
       <li><b>mesure de 12:05</b> en haut à droite : l'heure du dernier relevé. La
@@ -920,9 +926,39 @@ function tipFor(track, f, i, t) {
       const temp = f.T[i], lo = f.bmin[i], hi = f.bmax[i];
       return `${temp != null ? `<b>${temp.toFixed(1)}°</b>` : 'pas de mesure'}`
         + `${f.out[i] != null ? ` · ext ${f.out[i].toFixed(1)}°` : ''}`
-        + `${lo != null && hi != null ? `<br>${dim(`bande ${lo}–${hi}°`)}` : ''}`;
+        + `${lo != null && hi != null ? `<br>${dim(`objectif ${lo}–${hi}°`)}` : ''}`;
     }
   }
+}
+
+// Curseur vertical : materialise le point de mesure lu par la bulle. Il se
+// place sur l'index RETENU, pas sous le doigt -- entre deux creneaux, la bulle
+// annonce une valeur et le trait doit designer celle-la, sinon les deux se
+// contredisent a l'oeil.
+//
+// En surcouche CSS et non dans les SVG : le trait traverse toute la pile, or
+// chaque trace est un SVG separe. Une div positionnee dans `.tracks` donne une
+// ligne continue, et surtout un seul element a bouger a chaque mouvement de
+// souris plutot qu'un re-rendu de six graphiques.
+let shownCursor = null;
+
+function hideCursor() {
+  if (shownCursor) { shownCursor.hidden = true; shownCursor = null; }
+}
+
+function placeCursor(card, svg, i, n) {
+  const cur = card.querySelector('.cursor');
+  const tracks = card.querySelector('.tracks');
+  if (!cur || !tracks) return;
+  const tr = tracks.getBoundingClientRect(), sr = svg.getBoundingClientRect();
+  const axis = card.querySelector('.axis');
+  // S'arrete au-dessus de l'axe : le trait barrerait les heures.
+  const bottom = axis ? axis.getBoundingClientRect().top : tr.bottom;
+  cur.style.left = `${(sr.left - tr.left) + (i / Math.max(1, n - 1)) * sr.width}px`;
+  cur.style.height = `${Math.max(0, bottom - tr.top)}px`;
+  if (shownCursor && shownCursor !== cur) shownCursor.hidden = true;
+  cur.hidden = false;
+  shownCursor = cur;
 }
 
 function bindTip() {
@@ -930,7 +966,7 @@ function bindTip() {
   $('zones').addEventListener('pointermove', (ev) => {
     const card = ev.target.closest('.zone');
     const svg = ev.target.closest('.chart, .strip, .sun');
-    if (!card || !svg || !payload) { tip.hidden = true; return; }
+    if (!card || !svg || !payload) { tip.hidden = true; hideCursor(); return; }
     const f = frames.get(card.dataset.zone);
     const t = viewT;
     if (!f || !t.length) return;
@@ -947,12 +983,16 @@ function bindTip() {
       + (ahead ? '<span class="dim">à venir</span>'
                : tipFor(svg.dataset.track || 'chart', f, i, t));
     tip.hidden = false;
+    placeCursor(card, svg, i, t.length);
     // Keep the readout on screen near the right edge of a phone.
     const w = tip.offsetWidth;
     tip.style.left = Math.min(window.innerWidth - w - 8, Math.max(8, ev.clientX - w / 2)) + 'px';
     tip.style.top = (r.top - tip.offsetHeight - 8 < 8 ? r.bottom + 8 : r.top - tip.offsetHeight - 8) + 'px';
   });
-  $('zones').addEventListener('pointerleave', () => { tip.hidden = true; });
+  $('zones').addEventListener('pointerleave', () => { tip.hidden = true; hideCursor(); });
+  // Un re-rendu remplace les cartes : la reference gardee pointerait sur un
+  // element detache, et le curseur resterait invisible pour toujours.
+  window.addEventListener('scroll', hideCursor, { passive: true });
 }
 
 /* ── load loop ───────────────────────────────────────────────────────────── */

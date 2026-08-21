@@ -139,7 +139,16 @@ body {
    every card starts on the same x -- otherwise "occupation" and "clim" would
    draw the same instant at different pixels and the stack stops being readable
    as a vertical slice of time. */
-.tracks { margin-top: .35rem; }
+.tracks { margin-top: .35rem; position: relative; }
+
+/* Curseur de lecture : matérialise le point que la bulle est en train de
+   décrire. Volontairement plus discret que le trait « maintenant », qui lui
+   est une information sur la maison et non sur le pointeur. */
+.cursor {
+  position: absolute; top: 0; width: 1px;
+  background: var(--ink); opacity: .35;
+  pointer-events: none;
+}
 .track { display: flex; align-items: center; gap: .45rem; margin-top: 3px; }
 .tlab {
   flex: 0 0 4.6rem; font-size: .72rem; line-height: 1.2; color: var(--ink-dim);
@@ -245,8 +254,6 @@ body {
   flex-wrap: wrap; margin-top: 1rem; padding: 0 .25rem;
   font-size: .76rem; color: var(--ink-dim);
 }
-.legend { display: flex; gap: .7rem; flex-wrap: wrap; }
-.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: .3rem; vertical-align: -1px; }
 
 .tip {
   position: fixed; z-index: 20; pointer-events: none;
