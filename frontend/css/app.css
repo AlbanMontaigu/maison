@@ -66,6 +66,16 @@ body {
    charts (viewBox 1000 wide) would impose their intrinsic width on the card and
    push the whole page into horizontal overflow -- on a phone the temperature
    ended up cut off the right edge. Same reason for min-width:0 on the card. */
+.banner {
+  border: 1px solid var(--edge); border-left-width: 4px; border-radius: 12px;
+  background: var(--card); padding: .65rem .8rem; margin-bottom: .75rem;
+  font-size: .88rem;
+}
+.banner b { font-weight: 660; }
+.banner .bsub { display: block; color: var(--ink-dim); font-size: .78rem; margin-top: .15rem; }
+.banner.warn { border-left-color: var(--warm); background: #fff6ed; }
+.banner.info { border-left-color: var(--neutral); }
+
 .zones { display: grid; gap: .75rem; grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 720px) { .zones { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (min-width: 1180px) { .zones { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

@@ -262,6 +262,43 @@ function zoneCard(zone, f, t, marks) {
   </section>`;
 }
 
+// House-level banner. An absence directive cuts every AC in the house and puts
+// the heating in Netatmo away -- it was readable only in a card subtitle, which
+// is how the 21/08 « Noune » false positive (a first name read as a week-long
+// absence) held a whole morning unnoticed. Three states, none of them decorative:
+// the absence itself, a multi-day window waiting on confirmation, and an absence
+// the guard refused -- that last one is the guard saying out loud what it did.
+// The payload dates directives in ISO; the banner is read by a human standing
+// in the kitchen. No timezone maths here -- this is a calendar day, not an
+// instant, so parsing it as a Date would only risk shifting it by one.
+const frDate = (iso) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+  return m ? `${m[3]}/${m[2]}` : String(iso || '');
+};
+
+function bannerHtml(h) {
+  if (!h) return '';
+  const out = [];
+  if (h.absent) {
+    out.push(`<div class="banner warn"><b>Maison déclarée vide</b>`
+      + `${h.reason ? ` — ${esc(h.reason)}` : ''}`
+      + `<span class="bsub">Toutes les clims sont coupées et le chauffage est en mode Absent.`
+      + `${h.until ? ` Jusqu'au ${esc(frDate(h.until))}.` : " Expire ce soir."}`
+      + ` ${h.manual ? 'Posée à la main.' : "Lue dans l'agenda."}</span></div>`);
+  }
+  if (h.until_pending) {
+    out.push(`<div class="banner warn"><b>Absence limitée à aujourd'hui</b>`
+      + `<span class="bsub">L'agenda propose de la prolonger jusqu'au ${esc(frDate(h.until_pending))}.`
+      + ` Non appliqué sans confirmation.</span></div>`);
+  }
+  if (h.refused) {
+    out.push(`<div class="banner info"><b>Absence refusée</b> — ${esc(h.refused)}`
+      + `<span class="bsub">L'agenda a été lu comme « maison vide », sans marqueur de départ`
+      + ` dans le titre. Le pilotage normal est maintenu.</span></div>`);
+  }
+  return out.join('');
+}
+
 /* ── render ──────────────────────────────────────────────────────────────── */
 
 // Index range of the current view. "Day" is the calendar day (house time) of
@@ -333,6 +370,8 @@ function render() {
   const lastIdx = (arr) => { for (let i = arr.length - 1; i >= 0; i--) if (arr[i] != null) return i; return -1; };
   const iO = lastIdx(oT), iS = lastIdx(oS);
   $('outdoor').textContent = `extérieur ${iO >= 0 ? oT[iO].toFixed(1) + '°' : '—'}` + (iS >= 0 ? ` · soleil ${Math.round(oS[iS])}` : '');
+
+  $('banners').innerHTML = bannerHtml(payload.house);
 
   $('zones').innerHTML = payload.zones.length
     ? payload.zones.map((z) => {
