@@ -162,7 +162,7 @@ function chartSvg(f, t, marks) {
 //
 // Consecutive equal values are merged into one rect: a flat day is a handful of
 // nodes rather than a thousand, which is what keeps twelve tracks cheap.
-function trackSvg(values, style) {
+function trackSvg(name, values, style) {
   const n = values.length;
   if (!n) return '';
   let rects = '', i = 0;
@@ -178,7 +178,7 @@ function trackSvg(values, style) {
     }
     i = j;
   }
-  return `<svg class="strip" viewBox="0 0 ${PLOT_W} ${STRIP_H}" preserveAspectRatio="none" aria-hidden="true">${rects}</svg>`;
+  return `<svg class="strip" data-track="${name}" viewBox="0 0 ${PLOT_W} ${STRIP_H}" preserveAspectRatio="none" aria-hidden="true">${rects}</svg>`;
 }
 
 function trackRow(label, hint, svg) {
@@ -250,11 +250,11 @@ function zoneCard(zone, f, t, marks) {
     <div class="devs">${devs}</div>
     ${chartSvg(f, t, marks)}
     <div class="tracks">
-      ${trackRow('décision', "L'action retenue par le moteur à ce tick — une seule par tick", trackSvg(f.act, (a) => a ? { fill: colorFor(a), op: meta(a).active || isAlert(a) ? .95 : .3 } : null))}
-      ${trackRow('occupation', "Phase d'occupation de la zone", trackSvg(f.occ, (v) => occMeta(v)))}
-      ${zone.has_ac ? trackRow('clim', 'Clim en marche sous pilotage du moteur', trackSvg(f.ac, (v) => v ? { fill: 'var(--cool)' } : null)) : ''}
-      ${zone.has_fan ? trackRow('ventilo', 'Ventilo en marche sous pilotage du moteur', trackSvg(f.fan, (v) => v ? { fill: 'var(--fan)' } : null)) : ''}
-      ${zone.has_velux ? trackRow('volet', "Ouverture du volet — hauteur de la barre = % ouvert", trackSvg(f.velux, (v) => v == null ? null : { fill: 'var(--velux)', op: .8, h: Math.max(1.5, (v / 100) * STRIP_H) })) : ''}
+      ${trackRow('décision', "L'action retenue par le moteur à ce tick — une seule par tick", trackSvg('act', f.act, (a) => a ? { fill: colorFor(a), op: meta(a).active || isAlert(a) ? .95 : .3 } : null))}
+      ${trackRow('occupation', "Phase d'occupation de la zone", trackSvg('occ', f.occ, (v) => occMeta(v)))}
+      ${zone.has_ac ? trackRow('clim', 'Clim en marche sous pilotage du moteur', trackSvg('ac', f.ac, (v) => v ? { fill: 'var(--cool)' } : null)) : ''}
+      ${zone.has_fan ? trackRow('ventilo', 'Ventilo en marche sous pilotage du moteur', trackSvg('fan', f.fan, (v) => v ? { fill: 'var(--fan)' } : null)) : ''}
+      ${zone.has_velux ? trackRow('volet', "Ouverture du volet — hauteur de la barre = % ouvert", trackSvg('velux', f.velux, (v) => v == null ? null : { fill: 'var(--velux)', op: .8, h: Math.max(1.5, (v / 100) * STRIP_H) })) : ''}
       ${axisHtml(t, marks)}
     </div>
   </section>`;
@@ -390,7 +390,9 @@ function helpHtml() {
     montre où la pièce se situe dans sa bande à l'instant présent.</p>
 
     <h3>Les pistes</h3>
-    <p>Chaque ligne est une lecture verticale du même axe de temps que la courbe.</p>
+    <p>Chaque ligne est une lecture verticale du même axe de temps que la courbe.
+    Survoler une ligne (ou y poser le doigt) affiche une bulle propre à
+    <em>cette</em> ligne : sa valeur à cet instant, et depuis quand elle dure.</p>
     <ul>
       <li><b>décision</b> — ce que le moteur a retenu à ce tick, <em>une seule
       action à la fois</em>. C'est la ligne qui porte le pourquoi (le texte au
@@ -438,6 +440,69 @@ function bindView() {
 
 /* ── hover readout ───────────────────────────────────────────────────────── */
 
+// Extent of the run the pointer is standing in. A strip's whole point is that
+// a value lasts: "clim en marche" answers less than "en marche depuis 06:20".
+function runAt(values, i) {
+  let a = i, b = i;
+  while (a > 0 && values[a - 1] === values[i]) a--;
+  while (b < values.length - 1 && values[b + 1] === values[i]) b++;
+  return [a, b];
+}
+
+// Over a week a run starts on another day, and a bare "06:20" would then be a
+// lie by omission -- the day is spelled out unless it is the hovered one.
+function stamp(e, ref) {
+  return dayKey(e) === dayKey(ref) ? hhmm(e) : `${dayLabel(e)} ${hhmm(e)}`;
+}
+
+function runSpan(values, i, t) {
+  const [a, b] = runAt(values, i);
+  const open = b >= t.length - 1;   // still running: a start, no end
+  // A run touching index 0 began before the window -- "depuis 00:05" would then
+  // be the edge of the *view*, not of the run, and the day view would shorten
+  // every overnight run by construction.
+  if (a === 0) return open ? 'toute la période affichée' : `au moins jusqu'à ${stamp(t[b + 1], t[i])}`;
+  const from = stamp(t[a], t[i]);
+  return open ? `depuis ${from}` : `${from} → ${stamp(t[b + 1], t[i])}`;
+}
+
+// One bubble per row, saying what THAT row shows. A single readout repeating
+// every track under every row made the pointer position meaningless: whichever
+// line you were on, you got the same block and had to find your line in it.
+function tipFor(track, f, i, t) {
+  const dim = (x) => `<span class="dim">${x}</span>`;
+  switch (track) {
+    case 'act': {
+      const m = meta(f.act[i]);
+      if (!f.act[i]) return 'pas de décision enregistrée';
+      return `${m.emoji} ${esc(m.label)}<br>${dim(runSpan(f.act, i, t))}`;
+    }
+    case 'occ': {
+      if (f.occ[i] == null) return 'occupation inconnue';
+      return `occupation : ${esc(occMeta(f.occ[i]).label)}<br>${dim(runSpan(f.occ, i, t))}`;
+    }
+    case 'ac':
+    case 'fan': {
+      const v = f[track][i];
+      if (v == null) return 'pas de mesure';
+      const noun = track === 'ac' ? 'clim' : 'ventilo';
+      const state = v ? 'en marche' : (track === 'ac' ? 'arrêtée' : 'arrêté');
+      return `${noun} ${state}<br>${dim(runSpan(f[track], i, t))}`
+        + (v ? `<br>${dim('sous pilotage du moteur')}` : '');
+    }
+    case 'velux': {
+      if (f.velux[i] == null) return 'pas de position connue';
+      return `volet ${f.velux[i]}% ouvert<br>${dim(runSpan(f.velux, i, t))}`;
+    }
+    default: {
+      const temp = f.T[i], lo = f.bmin[i], hi = f.bmax[i];
+      return `${temp != null ? `<b>${temp.toFixed(1)}°</b>` : 'pas de mesure'}`
+        + `${f.out[i] != null ? ` · ext ${f.out[i].toFixed(1)}°` : ''}`
+        + `${lo != null && hi != null ? `<br>${dim(`bande ${lo}–${hi}°`)}` : ''}`;
+    }
+  }
+}
+
 function bindTip() {
   const tip = $('tip');
   $('zones').addEventListener('pointermove', (ev) => {
@@ -452,19 +517,8 @@ function bindTip() {
     const i = Math.max(0, Math.min(t.length - 1,
       Math.round(((ev.clientX - r.left) / r.width) * (t.length - 1))));
 
-    const m = meta(f.act[i]);
-    const temp = f.T[i];
-    // One line per track, in the same order as the rows, so the readout is the
-    // vertical slice the pointer is standing on.
-    const rows = [`${m.emoji} ${esc(m.label)}`, `occupation : ${esc(occMeta(f.occ[i]).label)}`];
-    if (f.ac[i] != null) rows.push(`clim ${f.ac[i] ? 'en marche' : 'arrêtée'}`);
-    if (f.fan[i] != null) rows.push(`ventilo ${f.fan[i] ? 'en marche' : 'arrêté'}`);
-    if (f.velux[i] != null) rows.push(`volet ${f.velux[i]}% ouvert`);
-
     tip.innerHTML = `<b>${dayLabel(t[i])} ${hhmm(t[i])}</b><br>`
-      + `${temp != null ? temp.toFixed(1) + '°' : 'pas de mesure'}`
-      + `${f.out[i] != null ? ` · ext ${f.out[i].toFixed(1)}°` : ''}<br>`
-      + rows.join('<br>');
+      + tipFor(svg.dataset.track || 'chart', f, i, t);
     tip.hidden = false;
     // Keep the readout on screen near the right edge of a phone.
     const w = tip.offsetWidth;

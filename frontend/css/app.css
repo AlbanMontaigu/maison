@@ -154,5 +154,6 @@ body {
   box-shadow: 0 6px 20px rgba(0,0,0,.45);
 }
 .tip b { font-weight: 600; }
+.tip .dim { color: var(--ink-dim); }
 
 .empty { color: var(--ink-dim); padding: 2rem .25rem; text-align: center; }
