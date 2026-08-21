@@ -113,6 +113,32 @@ body {
 }
 .seg button.on { background: var(--line); color: var(--ink); font-weight: 560; }
 
+/* Folded by default: the legend must be reachable on a phone -- where nothing
+   hovers, so the title attributes on the track labels are unreadable -- without
+   pushing the house itself below the fold. */
+.help {
+  margin-top: 1.25rem; background: var(--card); border-radius: 14px;
+  padding: .1rem .85rem; font-size: .78rem; color: var(--ink-dim);
+}
+.help summary {
+  cursor: pointer; padding: .7rem 0; font-size: .8rem; color: var(--ink);
+  font-weight: 560; list-style-position: inside;
+}
+.help h3 { margin: .9rem 0 .3rem; font-size: .74rem; color: var(--ink); font-weight: 600; }
+.help p { margin: .3rem 0; }
+.help ul { margin: .3rem 0 .6rem; padding-left: 1.1rem; }
+.help li { margin: .25rem 0; }
+.help b { color: var(--ink); font-weight: 560; }
+.help em { font-style: normal; color: var(--ink); }
+.help > div { padding-bottom: .7rem; }
+.chips { display: flex; flex-wrap: wrap; gap: .3rem; margin: .3rem 0 .6rem; }
+.chip {
+  display: inline-flex; align-items: center; gap: .25rem;
+  font-size: .68rem; padding: .15rem .45rem; border-radius: 6px;
+  background: var(--card-2); color: var(--ink-dim); white-space: nowrap;
+}
+.chip i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; flex: 0 0 auto; }
+
 .foot {
   display: flex; justify-content: space-between; align-items: center; gap: .75rem;
   flex-wrap: wrap; margin-top: 1.25rem; padding: 0 .25rem;

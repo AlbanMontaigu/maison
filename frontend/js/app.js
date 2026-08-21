@@ -250,7 +250,7 @@ function zoneCard(zone, f, t, marks) {
     <div class="devs">${devs}</div>
     ${chartSvg(f, t, marks)}
     <div class="tracks">
-      ${trackRow('moteur', "L'action retenue par le moteur à ce tick", trackSvg(f.act, (a) => a ? { fill: colorFor(a), op: meta(a).active || isAlert(a) ? .95 : .3 } : null))}
+      ${trackRow('décision', "L'action retenue par le moteur à ce tick — une seule par tick", trackSvg(f.act, (a) => a ? { fill: colorFor(a), op: meta(a).active || isAlert(a) ? .95 : .3 } : null))}
       ${trackRow('occupation', "Phase d'occupation de la zone", trackSvg(f.occ, (v) => occMeta(v)))}
       ${zone.has_ac ? trackRow('clim', 'Clim en marche sous pilotage du moteur', trackSvg(f.ac, (v) => v ? { fill: 'var(--cool)' } : null)) : ''}
       ${zone.has_fan ? trackRow('ventilo', 'Ventilo en marche sous pilotage du moteur', trackSvg(f.fan, (v) => v ? { fill: 'var(--fan)' } : null)) : ''}
@@ -346,9 +346,84 @@ function render() {
     ['rgba(70,209,139,.4)', 'bande de confort']]
     .map(([c, l]) => `<span><i style="background:${c}"></i>${l}</span>`).join('');
 
+  $('help-body').innerHTML = helpHtml();
+
   $('foot-meta').textContent =
     `${view === 'day' ? 'jour' : payload.window_days + ' j'} · ${t.length} ticks`
     + ` · export ${hhmm(Math.floor(new Date(payload.generated_at).getTime() / 1000))}`;
+}
+
+// The legend is built from the payload, not written here: it lists the action
+// codes that actually occur in the current window, with the engine's own emoji
+// and wording. A hand-written list would drift the day an action is added --
+// and would name actions this house never takes.
+function helpHtml() {
+  // Keyed by what the reader sees, not by the action code: several codes share
+  // one wording (IDLE and VELUX_HOLD are both "ok"), and they draw the same
+  // rect -- listing them twice would ask the reader to tell apart two identical
+  // entries.
+  const seen = new Map();
+  for (const z of payload.zones || []) {
+    for (const [a, c] of z.runs || []) {
+      if (!a) continue;
+      const m = meta(a);
+      const key = `${m.emoji}|${m.label}|${colorFor(a)}`;
+      const cur = seen.get(key) || { m, color: colorFor(a), n: 0 };
+      cur.n += c;
+      seen.set(key, cur);
+    }
+  }
+  const actions = [...seen.values()].sort((a, b) => b.n - a.n)
+    .map((e) => `<span class="chip"><i style="background:${e.color}"></i>${e.m.emoji} ${esc(e.m.label)}</span>`)
+    .join('');
+
+  const occ = ['window', 'always', 'precool', 'off'].map((k) => {
+    const m = occMeta(k);
+    return `<span class="chip"><i style="background:${m.fill || 'var(--card-2)'};opacity:${m.op == null ? 1 : m.op}"></i>${esc(m.label)}</span>`;
+  }).join('');
+
+  return `
+    <h3>La courbe</h3>
+    <p>Trait plein : la température de la pièce. Pointillés : la température
+    extérieure. Le fond vert est la bande de confort visée — elle n'est pas
+    plate, elle suit le programme jour / nuit de la zone. La jauge sous le titre
+    montre où la pièce se situe dans sa bande à l'instant présent.</p>
+
+    <h3>Les pistes</h3>
+    <p>Chaque ligne est une lecture verticale du même axe de temps que la courbe.</p>
+    <ul>
+      <li><b>décision</b> — ce que le moteur a retenu à ce tick, <em>une seule
+      action à la fois</em>. C'est la ligne qui porte le pourquoi (le texte au
+      dessus de la courbe) et les échecs de driver. Bleu : action de
+      refroidissement. Orange : de chauffage. Gris : neutre. Rouge : échec.
+      Translucide : action passive (en attente, hors occupation).</li>
+      <li><b>occupation</b> — la phase d'occupation de la zone. Une case vide
+      est une pièce inoccupée.</li>
+      <li><b>clim</b> / <b>ventilo</b> — barre pleine = appareil en marche
+      <em>sous pilotage du moteur</em>. C'est le seul état que le moteur
+      enregistre : un appareil allumé à la main n'apparaît pas ici.</li>
+      <li><b>volet</b> — la hauteur de la barre est le pourcentage d'ouverture.
+      Barre pleine = grand ouvert, ligne fine = fermé.</li>
+    </ul>
+
+    <h3>Occupation</h3>
+    <div class="chips">${occ}</div>
+
+    <h3>Actions vues sur cette fenêtre</h3>
+    <div class="chips">${actions || '<span class="chip">aucune</span>'}</div>
+
+    <h3>Le reste</h3>
+    <ul>
+      <li><b>Jour / 7 j</b> — « Jour » est le jour calendaire en cours de la
+      maison, pas les 24 dernières heures. Le choix est retenu d'une visite à
+      l'autre.</li>
+      <li><b>tick 12:05</b> en haut à droite : l'heure du dernier passage du
+      moteur. La pastille passe au rouge s'il se tait.</li>
+      <li><b>clim off · 7 h</b> sous la ligne d'action : depuis combien de temps
+      l'appareil est dans cet état. Un ⚠️ signale un driver qui refuse.</li>
+      <li>La page se rafraîchit toute seule chaque minute ; la maison, elle,
+      exporte toutes les 10 minutes.</li>
+    </ul>`;
 }
 
 function bindView() {
