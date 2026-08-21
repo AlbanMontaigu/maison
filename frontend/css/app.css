@@ -66,6 +66,10 @@ body {
    charts (viewBox 1000 wide) would impose their intrinsic width on the card and
    push the whole page into horizontal overflow -- on a phone the temperature
    ended up cut off the right edge. Same reason for min-width:0 on the card. */
+.intro {
+  margin: 0 .25rem .8rem; font-size: .84rem; color: var(--ink-dim); max-width: 46rem;
+}
+
 .banner {
   border: 1px solid var(--edge); border-left-width: 4px; border-radius: 12px;
   background: var(--card); padding: .65rem .8rem; margin-bottom: .75rem;
@@ -95,6 +99,9 @@ body {
 .zone-temp small { font-size: .8rem; color: var(--ink-dim); }
 .zone-temp.hot { color: var(--warm); }
 .zone-temp.cold { color: var(--cool); }
+/* Capteur muet : le dire, plutot qu'un « — » de 1,85 rem qu'on lit comme une
+   carte cassee. */
+.zone-temp.none { font-size: .8rem; color: var(--ink-dim); font-weight: 560; align-self: center; }
 
 .action { display: flex; align-items: baseline; gap: .35rem; margin: .6rem 0 .1rem; font-size: .86rem; }
 .action .emo { font-size: 1rem; flex: 0 0 auto; }

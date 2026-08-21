@@ -20,7 +20,13 @@ let payload = null;
 // 'day' | 'week'. The day is the default because that is the question actually
 // being asked ("what is the house doing today"); the week is the one you open
 // on purpose, so it is a click away and remembered across visits.
-let view = localStorage.getItem(VIEW_KEY) === 'week' ? 'week' : 'day';
+// localStorage leve en navigation privee sur Safari. Un choix d'affichage non
+// memorise est un desagrement ; une page blanche est une panne.
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* rien a faire */ } },
+};
+let view = store.get(VIEW_KEY) === 'week' ? 'week' : 'day';
 // The slice the current view renders: filled by render(), read by the tooltip.
 let viewT = [];
 // Frontiere « maintenant » du rendu courant, relue par la bulle. Posee par
@@ -65,17 +71,58 @@ const hhmm = (e) => { const p = parts(e); return `${p.hour}:${p.minute}`; };
 const dayKey = (e) => { const p = parts(e); return `${p.year}-${p.month}-${p.day}`; };
 const dayLabel = (e) => { const p = parts(e); return `${p.weekday} ${Number(p.day)}`; };
 
-function ago(iso) {
+// Reference de temps du payload : « clim allumee depuis 3 h » se compte depuis
+// l'export, pas depuis l'horloge du telephone qui le lit. Un mobile deregle
+// affichait des durees fausses sans que rien ne le signale.
+function houseNow() {
+  const g = payload?.generated_at ? new Date(payload.generated_at).getTime() : NaN;
+  return Number.isFinite(g) ? g : Date.now();
+}
+
+function ago(iso, ref = houseNow()) {
   if (!iso) return '';
-  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  const s = Math.max(0, (ref - new Date(iso).getTime()) / 1000);
+  // Sous la minute, l'age exact n'apprend rien -- et « 0 s » se lit comme un
+  // bug. C'est aussi le filet si un horodatage depasse la reference (derive
+  // d'horloge sur le mac, ou payload fige plus vieux que l'etat qu'il decrit).
+  if (s < 60) return "à l'instant";
   if (s < 90) return `${Math.round(s)} s`;
   if (s < 5400) return `${Math.round(s / 60)} min`;
   if (s < 172800) return `${Math.round(s / 3600)} h`;
   return `${Math.round(s / 86400)} j`;
 }
 
+// Le moteur nomme ses actions pour un operateur : « plus de levier »,
+// « actionneur bloque », « anti-cyclage » sont son vocabulaire, et il est
+// partage avec les notifications Telegram -- le changer la-bas serait le
+// changer partout. Le dashboard le reecrit donc chez lui, et **par code
+// d'action**, jamais par ressemblance de texte : un code est un identifiant
+// stable, une phrase se reformule. Un code inconnu retombe sur le libelle du
+// moteur, emoji et couleur inclus.
+const PLAIN_LABELS = {
+  IDLE: 'rien à faire',
+  VELUX_HOLD: 'rien à faire',
+  OCC_OFF: 'personne dans la pièce',
+  NO_ACTION_HOT: 'trop chaud, rien de plus à faire',
+  NO_ACTION_COLD: 'trop froid, rien de plus à faire',
+  DIRECTIVE_OFF: 'appareils coupés (absence prévue)',
+  AC_WAIT: 'clim en pause (protection du compresseur)',
+  HEAT_WAIT: 'chauffage en pause (protection de la chaudière)',
+  AC_RETRY: "clim relancée (elle n'avait pas répondu)",
+  HEAT_RETRY: "chauffage relancé (il n'avait pas répondu)",
+  VELUX_NIGHT_PURGE: 'volet ouvert (on fait entrer la fraîcheur)',
+  VELUX_NIGHT_INSULATION: 'volet fermé (on garde la chaleur)',
+  VELUX_CLOSE: 'volet fermé (on bloque le soleil)',
+  VELUX_CLOSE_PREDICTIVE: 'volet fermé (avant que le soleil tape)',
+  VELUX_DAY_LIGHT: 'volet ouvert (lumière du jour)',
+  VELUX_OPEN: 'volet ouvert (on capte le soleil)',
+  RELEASE_FAIL: "échec : l'appareil est encore allumé",
+};
+
 function meta(action) {
-  return (payload?.actions || {})[action] || { emoji: '·', dir: 'neutral', active: false, label: action || '—' };
+  const m = (payload?.actions || {})[action]
+    || { emoji: '·', dir: 'neutral', active: false, label: action || '—' };
+  return PLAIN_LABELS[action] ? { ...m, label: PLAIN_LABELS[action] } : m;
 }
 
 // An action whose label announces a driver failure is not a state, it is a
@@ -327,7 +374,7 @@ function weekStats(zone, f, t) {
   const chips = [
     `<span class="stat">moyenne <b>${(sum / n).toFixed(1)}°</b></span>`,
     `<span class="stat">${lo.toFixed(1)} → ${hi.toFixed(1)}°</span>`,
-    `<span class="stat${out / n > .25 ? ' warn' : ''}">hors bande <b>${Math.round((out / n) * 100)} %</b></span>`,
+    `<span class="stat${out / n > .25 ? ' warn' : ''}">hors de l'objectif <b>${Math.round((out / n) * 100)} %</b></span>`,
   ];
   // Serie absente => surtout PAS « clim — », qui affirme qu'elle n'a pas tourne.
   if (zone.has_ac && f.has.ac) chips.push(`<span class="stat">clim ${ac ? dur(ac) : '—'}</span>`);
@@ -408,20 +455,22 @@ function zoneCard(zone, f, t, marks, nowIdx) {
         <div class="zone-name">${esc(zone.name)}</div>
         <div class="zone-sub">${view === 'week' ? '' : sub.join(' · ')}</div>
       </div>
-      <div class="zone-temp ${tempCls}">${c.T != null ? c.T.toFixed(1) : '—'}<small>°C</small></div>
+      ${c.T != null
+        ? `<div class="zone-temp ${tempCls}">${c.T.toFixed(1)}<small>°C</small></div>`
+        : `<div class="zone-temp none">capteur muet</div>`}
     </div>
     ${head}
     <div class="tracks">
-      ${trackRow('température', 'Trait plein : la pièce. Pointillés : l\'extérieur. Fond vert : la bande de confort.', chartSvg(f, t, marks, nowIdx))}
-      ${trackRow('décision', "L'action retenue par le moteur à ce tick — une seule par tick", trackSvg('act', nowIdx, f.act, (a) => a ? { fill: colorFor(a), op: meta(a).active || isAlert(a) ? .95 : PASSIVE_OP } : null))}
+      ${trackRow('température', 'Trait plein : la pièce. Pointillés : dehors. Fond vert : l\'objectif de température.', chartSvg(f, t, marks, nowIdx))}
+      ${trackRow('décision', "Ce que la maison a décidé de faire à cet instant — une seule chose à la fois", trackSvg('act', nowIdx, f.act, (a) => a ? { fill: colorFor(a), op: meta(a).active || isAlert(a) ? .95 : PASSIVE_OP } : null))}
       ${f.has.occ
         ? trackRow('occupation', "Phase d'occupation de la zone", trackSvg('occ', nowIdx, f.occ, (v) => occMeta(v)))
         : missingRow('occupation')}
       ${!zone.has_ac ? '' : f.has.ac
-        ? trackRow('clim', 'Clim en marche sous pilotage du moteur', trackSvg('ac', nowIdx, f.ac, (v) => v ? { fill: 'var(--cool)' } : null))
+        ? trackRow('clim', 'Clim en marche, allumée par la maison', trackSvg('ac', nowIdx, f.ac, (v) => v ? { fill: 'var(--cool)' } : null))
         : missingRow('clim')}
       ${!zone.has_fan ? '' : f.has.fan
-        ? trackRow('ventilo', 'Ventilo en marche sous pilotage du moteur', trackSvg('fan', nowIdx, f.fan, (v) => v ? { fill: 'var(--fan)' } : null))
+        ? trackRow('ventilo', 'Ventilo en marche, allumé par la maison', trackSvg('fan', nowIdx, f.fan, (v) => v ? { fill: 'var(--fan)' } : null))
         : missingRow('ventilo')}
       ${!zone.has_velux ? '' : f.has.velux
         ? trackRow('volet', "Ouverture du volet — hauteur de la barre = % ouvert", trackSvg('velux', nowIdx, f.velux, (v) => v == null ? null : { fill: 'var(--velux)', op: .8, h: Math.max(1.5, (v / 100) * STRIP_H) }))
@@ -587,16 +636,36 @@ function render() {
     b.setAttribute('aria-pressed', String(b.dataset.view === view));
   }
 
+  // Trois etats, dans cet ordre de gravite. Le second est nouveau : si le PUSH
+  // s'arrete alors que le moteur tourne, le fichier servi se fige et tout a
+  // l'air normal -- `engine.stale` est calcule a l'export, donc il gele avec
+  // lui. C'est le seul endroit ou l'horloge du lecteur sert, et seulement comme
+  // seuil grossier.
+  const frozenMin = (Date.now() - new Date(payload.generated_at).getTime()) / 60000;
   const engEl = $('engine');
-  engEl.textContent = eng.stale
-    ? `moteur muet depuis ${ago(eng.last_run) || '?'}`
-    : `tick ${eng.last_run ? hhmm(Math.floor(new Date(eng.last_run).getTime() / 1000)) : '—'}`;
-  engEl.className = 'pill ' + (eng.stale ? 'stale' : 'fresh');
+  if (Number.isFinite(frozenMin) && frozenMin > 25) {
+    engEl.textContent = `données figées depuis ${ago(payload.generated_at, Date.now())}`;
+    engEl.className = 'pill stale';
+  } else if (eng.stale) {
+    engEl.textContent = `maison silencieuse depuis ${ago(eng.last_run) || '?'}`;
+    engEl.className = 'pill stale';
+  } else {
+    engEl.textContent = `mesure de ${eng.last_run ? hhmm(Math.floor(new Date(eng.last_run).getTime() / 1000)) : '—'}`;
+    engEl.className = 'pill fresh';
+  }
 
   const oT = payload.outdoor?.T || [], oS = payload.outdoor?.solar || [];
   const lastIdx = (arr) => { for (let i = arr.length - 1; i >= 0; i--) if (arr[i] != null) return i; return -1; };
   const iO = lastIdx(oT), iS = lastIdx(oS);
-  $('outdoor').textContent = `extérieur ${iO >= 0 ? oT[iO].toFixed(1) + '°' : '—'}` + (iS >= 0 ? ` · soleil ${Math.round(oS[iS])}` : '');
+  // « soleil 0 » ne disait rien : ni unite, ni echelle. Le nombre est un
+  // ensoleillement en W/m² sur la vitre, et le seuil qui le rend « fort » est
+  // celui du moteur lui-meme (`solar_high_threshold` = 150), pas une echelle
+  // inventee ici. Le chiffre reste en title pour qui le veut.
+  const solarWord = (v) => (v <= 0 ? 'nuit' : v >= 150 ? 'plein soleil' : 'soleil voilé');
+  const outEl = $('outdoor');
+  outEl.textContent = `dehors ${iO >= 0 ? oT[iO].toFixed(1) + '°' : '—'}`
+    + (iS >= 0 ? ` · ${solarWord(oS[iS])}` : '');
+  outEl.title = iS >= 0 ? `ensoleillement ${Math.round(oS[iS])} W/m² (fort au-delà de 150)` : '';
 
   $('banners').innerHTML = bannerHtml(payload.house);
 
@@ -608,17 +677,17 @@ function render() {
     }).join('')
     : '<p class="empty">Aucune zone dans les données.</p>';
 
-  $('legend').innerHTML = [['var(--cool)', 'froid / clim'], ['var(--warm)', 'chaud'],
-    ['var(--fan)', 'ventilo'], ['var(--occ)', 'occupation'],
-    ['var(--velux)', 'volet'], ['var(--alert)', 'échec'],
-    ['var(--band)', 'bande de confort']]
+  $('legend').innerHTML = [['var(--cool)', 'refroidir / clim'], ['var(--warm)', 'réchauffer'],
+    ['var(--fan)', 'ventilo'], ['var(--occ)', 'quelqu\'un dans la pièce'],
+    ['var(--velux)', 'volet'], ['var(--alert)', 'panne'],
+    ['var(--band)', 'objectif de température']]
     .map(([c, l]) => `<span><i style="background:${c}"></i>${l}</span>`).join('');
 
   $('help-body').innerHTML = helpHtml();
 
   $('foot-meta').textContent =
-    `${view === 'day' ? 'jour' : payload.window_days + ' j'} · ${t.length} ticks`
-    + ` · export ${hhmm(Math.floor(new Date(payload.generated_at).getTime() / 1000))}`;
+    `${view === 'day' ? "aujourd'hui" : payload.window_days + ' derniers jours'}`
+    + ` · relevé toutes les 10 min · dernier envoi ${hhmm(Math.floor(new Date(payload.generated_at).getTime() / 1000))}`;
 }
 
 // The legend is built from the payload, not written here: it lists the action
@@ -653,7 +722,7 @@ function helpHtml() {
   return `
     <h3>La courbe</h3>
     <p>Trait plein : la température de la pièce. Pointillés : la température
-    extérieure. Le fond vert est la bande de confort visée — elle n'est pas
+    extérieure. Le fond vert est l'objectif de température — elle n'est pas
     plate, elle suit le programme jour / nuit de la zone.</p>
     <p><b>Les axes.</b> En ordonnée, des graduations en °C (l'unité n'est
     écrite qu'une fois, en haut) avec leurs pointillés horizontaux ; l'échelle
@@ -666,7 +735,7 @@ function helpHtml() {
     Survoler une ligne (ou y poser le doigt) affiche une bulle propre à
     <em>cette</em> ligne : sa valeur à cet instant, et depuis quand elle dure.</p>
     <ul>
-      <li><b>décision</b> — ce que le moteur a retenu à ce tick, <em>une seule
+      <li><b>décision</b> — ce que la maison a décidé à cet instant, <em>une seule
       action à la fois</em>. C'est la ligne qui porte le pourquoi (le texte au
       dessus de la courbe) et les échecs de driver. Bleu : action de
       refroidissement. Orange : de chauffage. Gris : neutre. Rouge : échec.
@@ -674,7 +743,7 @@ function helpHtml() {
       <li><b>occupation</b> — la phase d'occupation de la zone. Une case vide
       est une pièce inoccupée.</li>
       <li><b>clim</b> / <b>ventilo</b> — barre pleine = appareil en marche
-      <em>sous pilotage du moteur</em>. C'est le seul état que le moteur
+      <em>allumé par la maison</em>. C'est le seul état que la maison
       enregistre : un appareil allumé à la main n'apparaît pas ici.</li>
       <li><b>volet</b> — la hauteur de la barre est le pourcentage d'ouverture.
       Barre pleine = grand ouvert, ligne fine = fermé.</li>
@@ -696,14 +765,15 @@ function helpHtml() {
       motif — sur mille ticks, c'en est un. Elle affiche à la place ce que la
       fenêtre dit : température moyenne, amplitude (min → max), et durées de
       marche clim / ventilo.</li>
-      <li><b>hors bande</b> = part de la fenêtre entière — heures inoccupées
+      <li><b>hors de l'objectif</b> = part de la fenêtre entière — heures inoccupées
       comprises — où la pièce était au-dessus du haut de bande ou en dessous du
       bas, comparée à la bande <em>de ce moment-là</em> et non à un seuil fixe.
       La restreindre aux seules heures d'occupation a été mesuré : au plus
       7 points d'écart, donc le chiffre simple suffit. Il vire à l'orange
       au-delà de 25 %.</li>
-      <li><b>tick 12:05</b> en haut à droite : l'heure du dernier passage du
-      moteur. La pastille passe au rouge s'il se tait.</li>
+      <li><b>mesure de 12:05</b> en haut à droite : l'heure du dernier relevé. La
+      pastille passe au rouge si la maison se tait, et aussi si la page ne
+      reçoit plus rien de neuf (« données figées »).</li>
       <li><b>clim off · 7 h</b> sous la ligne d'action : depuis combien de temps
       l'appareil est dans cet état. Un ⚠️ signale un driver qui refuse.</li>
       <li>La page se rafraîchit toute seule chaque minute ; la maison, elle,
@@ -716,7 +786,7 @@ function bindView() {
     const b = ev.target.closest('button[data-view]');
     if (!b || b.dataset.view === view) return;
     view = b.dataset.view;
-    localStorage.setItem(VIEW_KEY, view);
+    store.set(VIEW_KEY, view);
     if (payload) render();
   });
 }
@@ -771,7 +841,7 @@ function tipFor(track, f, i, t) {
       const noun = track === 'ac' ? 'clim' : 'ventilo';
       const state = v ? 'en marche' : (track === 'ac' ? 'arrêtée' : 'arrêté');
       return `${noun} ${state}<br>${dim(runSpan(f[track], i, t))}`
-        + (v ? `<br>${dim('sous pilotage du moteur')}` : '');
+        + (v ? `<br>${dim('allumé par la maison')}` : '');
     }
     case 'velux': {
       if (f.velux[i] == null) return 'pas de position connue';
