@@ -12,8 +12,16 @@
 
 const REFRESH_MS = 60_000;
 const PLOT_W = 1000, PLOT_H = 110, STRIP_H = 14;
+const VIEW_KEY = 'maison.view';
 
 let payload = null;
+// 'day' | 'week'. The day is the default because that is the question actually
+// being asked ("what is the house doing today"); the week is the one you open
+// on purpose, so it is a click away and remembered across visits.
+let view = localStorage.getItem(VIEW_KEY) === 'week' ? 'week' : 'day';
+// The slice the current view renders: filled by render(), read by the tooltip.
+let viewT = [];
+const frames = new Map();
 
 const $ = (id) => document.getElementById(id);
 
@@ -77,16 +85,24 @@ function colorFor(action) {
   return base;
 }
 
+// Occupancy phases, straight from the engine's own vocabulary. 'off' draws
+// nothing on purpose: an empty room is an empty bar, which reads faster than
+// any colour would.
+const OCC_META = {
+  window:  { fill: 'var(--occ)',  op: .95, label: 'occupée' },
+  precool: { fill: 'var(--cool)', op: .70, label: 'pré-refroidissement' },
+  always:  { fill: 'var(--occ)',  op: .28, label: 'permanente' },
+  off:     { fill: null,                   label: 'vide' },
+};
+const occMeta = (v) => OCC_META[v] || { fill: null, label: v || '—' };
+
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 /* ── chart ───────────────────────────────────────────────────────────────── */
 
-function chartSvg(zone, t) {
+function chartSvg(f, t, marks) {
   const n = t.length;
-  const T = zone.series.T;
-  const bmin = expand(zone.series.bmin, n);
-  const bmax = expand(zone.series.bmax, n);
-  const out = payload.outdoor.T;
+  const T = f.T, bmin = f.bmin, bmax = f.bmax, out = f.out;
 
   const vals = [];
   for (let i = 0; i < n; i++) {
@@ -124,12 +140,12 @@ function chartSvg(zone, t) {
     return d;
   };
 
-  // One separator per midnight, so seven days read as seven days.
+  // Same marks as the axis under the strips: midnights over a week, every
+  // third hour over a day. Drawing them from one shared list is what keeps the
+  // gridlines and the labels on the same pixels.
   let seps = '';
-  for (let i = 1; i < n; i++) {
-    if (dayKey(t[i]) !== dayKey(t[i - 1])) {
-      seps += `<line x1="${x(i).toFixed(1)}" y1="0" x2="${x(i).toFixed(1)}" y2="${PLOT_H}" stroke="var(--line)" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
-    }
+  for (const [i] of marks) {
+    seps += `<line x1="${x(i).toFixed(1)}" y1="0" x2="${x(i).toFixed(1)}" y2="${PLOT_H}" stroke="var(--line)" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
   }
 
   return `<svg class="chart" viewBox="0 0 ${PLOT_W} ${PLOT_H}" preserveAspectRatio="none" aria-hidden="true">
@@ -140,18 +156,42 @@ function chartSvg(zone, t) {
   </svg>`;
 }
 
-// The action strip below each chart: what the engine was doing, minute by
-// minute, on the same x axis as the curve.
-function stripSvg(zone, n) {
-  let i = 0, rects = '';
-  for (const [action, count] of zone.runs) {
-    if (action) {
-      const w = (count / n) * PLOT_W;
-      rects += `<rect x="${((i / n) * PLOT_W).toFixed(2)}" y="0" width="${Math.max(w, 0.4).toFixed(2)}" height="${STRIP_H}" fill="${colorFor(action)}" opacity="${meta(action).active || isAlert(action) ? 0.95 : 0.3}"/>`;
+// One row per actuator, all on the chart's x axis. A single mixed strip could
+// only ever show the engine's winning action, so a fan running under a running
+// AC was invisible; one track per type is the whole point of this block.
+//
+// Consecutive equal values are merged into one rect: a flat day is a handful of
+// nodes rather than a thousand, which is what keeps twelve tracks cheap.
+function trackSvg(values, style) {
+  const n = values.length;
+  if (!n) return '';
+  let rects = '', i = 0;
+  while (i < n) {
+    let j = i + 1;
+    while (j < n && values[j] === values[i]) j++;
+    const st = style(values[i]);
+    if (st && st.fill) {
+      const h = st.h == null ? STRIP_H : st.h;
+      rects += `<rect x="${((i / n) * PLOT_W).toFixed(2)}" y="${(STRIP_H - h).toFixed(2)}"`
+        + ` width="${Math.max(((j - i) / n) * PLOT_W, 0.4).toFixed(2)}" height="${h.toFixed(2)}"`
+        + ` fill="${st.fill}" opacity="${st.op == null ? 0.95 : st.op}"/>`;
     }
-    i += count;
+    i = j;
   }
   return `<svg class="strip" viewBox="0 0 ${PLOT_W} ${STRIP_H}" preserveAspectRatio="none" aria-hidden="true">${rects}</svg>`;
+}
+
+function trackRow(label, hint, svg) {
+  return `<div class="track"><span class="tlab" title="${esc(hint || label)}">${esc(label)}</span>`
+    + `<div class="tbar">${svg}</div></div>`;
+}
+
+// Time labels under the tracks, from the same mark list the gridlines use.
+function axisHtml(t, marks) {
+  const n = t.length;
+  if (n < 2 || !marks.length) return '';
+  return `<div class="axis">${marks.map(([i, l]) =>
+    `<span style="left:${((i / (n - 1)) * 100).toFixed(2)}%">${esc(l)}</span>`).join('')}</div>`;
 }
 
 /* ── zone card ───────────────────────────────────────────────────────────── */
@@ -164,7 +204,7 @@ function deviceChip(name, dev) {
   return `<span class="dev ${cls}">${name} ${dev.on ? 'on' : 'off'}${since}${failed ? ' ⚠️' : ''}</span>`;
 }
 
-function zoneCard(zone, t) {
+function zoneCard(zone, f, t, marks) {
   const c = zone.current;
   const m = meta(c.action);
   const band = c.band || {};
@@ -208,16 +248,78 @@ function zoneCard(zone, t) {
       <span class="why">— ${esc(c.reason || '')}</span>
     </div>
     <div class="devs">${devs}</div>
-    ${chartSvg(zone, t)}
-    ${stripSvg(zone, t.length)}
+    ${chartSvg(f, t, marks)}
+    <div class="tracks">
+      ${trackRow('moteur', "L'action retenue par le moteur à ce tick", trackSvg(f.act, (a) => a ? { fill: colorFor(a), op: meta(a).active || isAlert(a) ? .95 : .3 } : null))}
+      ${trackRow('occupation', "Phase d'occupation de la zone", trackSvg(f.occ, (v) => occMeta(v)))}
+      ${zone.has_ac ? trackRow('clim', 'Clim en marche sous pilotage du moteur', trackSvg(f.ac, (v) => v ? { fill: 'var(--cool)' } : null)) : ''}
+      ${zone.has_fan ? trackRow('ventilo', 'Ventilo en marche sous pilotage du moteur', trackSvg(f.fan, (v) => v ? { fill: 'var(--fan)' } : null)) : ''}
+      ${zone.has_velux ? trackRow('volet', "Ouverture du volet — hauteur de la barre = % ouvert", trackSvg(f.velux, (v) => v == null ? null : { fill: 'var(--velux)', op: .8, h: Math.max(1.5, (v / 100) * STRIP_H) })) : ''}
+      ${axisHtml(t, marks)}
+    </div>
   </section>`;
 }
 
 /* ── render ──────────────────────────────────────────────────────────────── */
 
+// Index range of the current view. "Day" is the calendar day (house time) of
+// the most recent tick, not a rolling 24 h: a rolling window would put two
+// different mornings side by side, which is not how anyone reads a day.
+function viewRange(t) {
+  if (view === 'week' || !t.length) return [0, t.length];
+  const k = dayKey(t[t.length - 1]);
+  let i = t.length;
+  while (i > 0 && dayKey(t[i - 1]) === k) i--;
+  return [i, t.length];
+}
+
+// Where the gridlines and the time labels go, computed once for every zone.
+function viewMarks(t) {
+  const marks = [];
+  if (view === 'week') {
+    for (let i = 1; i < t.length; i++) {
+      if (dayKey(t[i]) !== dayKey(t[i - 1])) marks.push([i, dayLabel(t[i])]);
+    }
+  } else {
+    let last = -1;
+    for (let i = 0; i < t.length; i++) {
+      const h = Number(parts(t[i]).hour);
+      if (h % 3 === 0 && h !== last) { marks.push([i, `${String(h).padStart(2, '0')}h`]); last = h; }
+    }
+  }
+  return marks;
+}
+
+// The payload ships every track run-length encoded over the full window; the
+// view slices them. Held in `frames` so the tooltip reads exactly what is drawn
+// -- computing it twice is how an off-by-one between chart and readout starts.
+function frameFor(zone, n, i0, i1) {
+  const ser = zone.series || {};
+  const cut = (rleArr) => expand(rleArr || [], n).slice(i0, i1);
+  return {
+    T: (ser.T || []).slice(i0, i1),
+    out: (payload.outdoor?.T || []).slice(i0, i1),
+    bmin: cut(ser.bmin), bmax: cut(ser.bmax),
+    act: expand(zone.runs || [], n).slice(i0, i1),
+    // Optional: a container still serving a payload from before the tracks
+    // were exported must degrade to empty rows, not to a broken page.
+    occ: cut(ser.occ), ac: cut(ser.ac), fan: cut(ser.fan), velux: cut(ser.velux),
+  };
+}
+
 function render() {
-  const t = payload.t || [];
+  const all = payload.t || [];
+  const [i0, i1] = viewRange(all);
+  const t = all.slice(i0, i1);
+  const marks = viewMarks(t);
+  viewT = t;
+  frames.clear();
   const eng = payload.engine || {};
+
+  for (const b of document.querySelectorAll('.seg button')) {
+    b.classList.toggle('on', b.dataset.view === view);
+    b.setAttribute('aria-pressed', String(b.dataset.view === view));
+  }
 
   const engEl = $('engine');
   engEl.textContent = eng.stale
@@ -231,16 +333,32 @@ function render() {
   $('outdoor').textContent = `extérieur ${iO >= 0 ? oT[iO].toFixed(1) + '°' : '—'}` + (iS >= 0 ? ` · soleil ${Math.round(oS[iS])}` : '');
 
   $('zones').innerHTML = payload.zones.length
-    ? payload.zones.map((z) => zoneCard(z, t)).join('')
+    ? payload.zones.map((z) => {
+      const f = frameFor(z, all.length, i0, i1);
+      frames.set(z.name, f);
+      return zoneCard(z, f, t, marks);
+    }).join('')
     : '<p class="empty">Aucune zone dans les données.</p>';
 
-  $('legend').innerHTML = [['var(--cool)', 'froid'], ['var(--warm)', 'chaud'],
-    ['var(--neutral)', 'neutre'], ['var(--alert)', 'échec'],
+  $('legend').innerHTML = [['var(--cool)', 'froid / clim'], ['var(--warm)', 'chaud'],
+    ['var(--fan)', 'ventilo'], ['var(--occ)', 'occupation'],
+    ['var(--velux)', 'volet'], ['var(--alert)', 'échec'],
     ['rgba(70,209,139,.4)', 'bande de confort']]
     .map(([c, l]) => `<span><i style="background:${c}"></i>${l}</span>`).join('');
 
   $('foot-meta').textContent =
-    `${payload.window_days} j · ${t.length} ticks · export ${hhmm(Math.floor(new Date(payload.generated_at).getTime() / 1000))}`;
+    `${view === 'day' ? 'jour' : payload.window_days + ' j'} · ${t.length} ticks`
+    + ` · export ${hhmm(Math.floor(new Date(payload.generated_at).getTime() / 1000))}`;
+}
+
+function bindView() {
+  $('view').addEventListener('click', (ev) => {
+    const b = ev.target.closest('button[data-view]');
+    if (!b || b.dataset.view === view) return;
+    view = b.dataset.view;
+    localStorage.setItem(VIEW_KEY, view);
+    if (payload) render();
+  });
 }
 
 /* ── hover readout ───────────────────────────────────────────────────────── */
@@ -251,21 +369,27 @@ function bindTip() {
     const card = ev.target.closest('.zone');
     const svg = ev.target.closest('.chart, .strip');
     if (!card || !svg || !payload) { tip.hidden = true; return; }
-    const zone = payload.zones.find((z) => z.name === card.dataset.zone);
-    const t = payload.t;
-    if (!zone || !t.length) return;
+    const f = frames.get(card.dataset.zone);
+    const t = viewT;
+    if (!f || !t.length) return;
 
     const r = svg.getBoundingClientRect();
     const i = Math.max(0, Math.min(t.length - 1,
       Math.round(((ev.clientX - r.left) / r.width) * (t.length - 1))));
 
-    const acts = expand(zone.runs, t.length);
-    const m = meta(acts[i]);
-    const temp = zone.series.T[i];
+    const m = meta(f.act[i]);
+    const temp = f.T[i];
+    // One line per track, in the same order as the rows, so the readout is the
+    // vertical slice the pointer is standing on.
+    const rows = [`${m.emoji} ${esc(m.label)}`, `occupation : ${esc(occMeta(f.occ[i]).label)}`];
+    if (f.ac[i] != null) rows.push(`clim ${f.ac[i] ? 'en marche' : 'arrêtée'}`);
+    if (f.fan[i] != null) rows.push(`ventilo ${f.fan[i] ? 'en marche' : 'arrêté'}`);
+    if (f.velux[i] != null) rows.push(`volet ${f.velux[i]}% ouvert`);
+
     tip.innerHTML = `<b>${dayLabel(t[i])} ${hhmm(t[i])}</b><br>`
       + `${temp != null ? temp.toFixed(1) + '°' : 'pas de mesure'}`
-      + `${payload.outdoor.T[i] != null ? ` · ext ${payload.outdoor.T[i].toFixed(1)}°` : ''}<br>`
-      + `${m.emoji} ${esc(m.label)}`;
+      + `${f.out[i] != null ? ` · ext ${f.out[i].toFixed(1)}°` : ''}<br>`
+      + rows.join('<br>');
     tip.hidden = false;
     // Keep the readout on screen near the right edge of a phone.
     const w = tip.offsetWidth;
@@ -303,6 +427,7 @@ fetch('build.txt').then((r) => r.ok ? r.text() : '').then((v) => {
   if (v) document.title = 'Maison · Confort';
 }).catch(() => {});
 
+bindView();
 bindTip();
 load();
 setInterval(load, REFRESH_MS);
