@@ -187,9 +187,10 @@ function chartSvg(f, t, marks, nowIdx) {
   const T = f.T, bmin = f.bmin, bmax = f.bmax, out = f.out;
 
   const outFc = (f.fc && f.fc.out) || [];
+  const outPast = (f.fc && f.fc.past) || [];
   const vals = [];
   for (let i = 0; i < n; i++) {
-    for (const v of [T[i], bmin[i], bmax[i], out[i], outFc[i]]) if (v != null) vals.push(v);
+    for (const v of [T[i], bmin[i], bmax[i], out[i], outFc[i], outPast[i]]) if (v != null) vals.push(v);
   }
   if (!vals.length) return '';
   let lo = Math.min(...vals), hi = Math.max(...vals);
@@ -257,6 +258,7 @@ function chartSvg(f, t, marks, nowIdx) {
     ${seps}
     ${bandPath ? `<path d="${bandPath}" fill="var(--band-fill)"/>` : ''}
     <path d="${line(out)}" fill="none" stroke="var(--ink-dim)" stroke-width="1" stroke-dasharray="3 3" opacity=".55" vector-effect="non-scaling-stroke"/>
+    <path d="${line(outPast)}" fill="none" stroke="var(--ink-dim)" stroke-width="1" stroke-dasharray="1 3" opacity=".45" vector-effect="non-scaling-stroke"/>
     <path d="${line(outFc)}" fill="none" stroke="var(--ink-dim)" stroke-width="1" stroke-dasharray="1 3" opacity=".45" vector-effect="non-scaling-stroke"/>
     <path d="${line(T)}" fill="none" stroke="var(--ink)" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
     ${nowMark(nowIdx, n, PLOT_H)}
@@ -893,11 +895,22 @@ function forecastAt(ts, times, values) {
 // jamais une moyenne ou un « hors objectif » sur de la prevision.
 function forecastArrays(zoneName, tl, nowIdx) {
   const fc = payload.forecast;
-  const empty = { out: [], solar: [] };
+  const empty = { out: [], solar: [], past: [] };
   if (!fc || nowIdx < 0 || view !== 'day') return empty;
   const solarSrc = (fc.solar || {})[zoneName];
   const out = new Array(tl.length).fill(null);
   const solar = new Array(tl.length).fill(null);
+  // Ce qui avait ete PREVU pour les heures deja passees, fige au premier export
+  // du jour. Sans cette archive on comparerait la mesure a une prevision
+  // corrigee apres coup, ce qui flatte la prevision.
+  const issued = fc.issued;
+  const past = new Array(tl.length).fill(null);
+  if (issued) {
+    for (let i = 0; i <= Math.min(nowIdx, tl.length - 1); i++) {
+      const v = forecastAt(tl[i], issued.t, issued.outdoor);
+      if (v != null) past[i] = Math.round(v * 10) / 10;
+    }
+  }
   for (let i = nowIdx; i < tl.length; i++) {
     const v = forecastAt(tl[i], fc.t, fc.outdoor);
     if (v != null) out[i] = Math.round(v * 10) / 10;
@@ -906,9 +919,7 @@ function forecastArrays(zoneName, tl, nowIdx) {
       if (sv != null) solar[i] = Math.round(sv);
     }
   }
-  // On raccroche la prevision au dernier point mesure, sinon les deux traces
-  // se touchent sans se rejoindre et on lit une rupture qui n'existe pas.
-  return { out, solar };
+  return { out, solar, past, issuedAt: issued && issued.issued_at };
 }
 
 function frameFor(zone, n, v) {
@@ -1063,6 +1074,16 @@ function helpHtml() {
     température dehors, et le soleil attendu sur la fenêtre de chaque pièce
     (même calcul que pour le présent, donc une pièce peu exposée reste peu
     exposée dans la prévision).</p>
+    <p><b>Prévu contre mesuré.</b> Le pointillé fin court aussi sur les heures
+    déjà passées : c'est ce qui avait été annoncé, figé au premier relevé de la
+    journée. Survoler la courbe donne l'écart (« dehors 13,9°, prévu 16,1°,
+    −2,2° »). L'archive est indispensable — la météo réécrit ses heures passées
+    à chaque appel, et comparer sans elle opposerait la mesure à une prévision
+    corrigée après coup, ce qui flatte la prévision.</p>
+    <p>L'écart n'est donné que pour le <em>dehors</em> : c'est la seule des deux
+    courbes prévues qu'on mesure aussi. Le soleil d'une pièce est lui-même
+    calculé à partir de la prévision — un « prévu contre mesuré » y opposerait
+    la prévision à elle-même.</p>
     <p>La température <em>intérieure</em> n'est pas prévue, et les décisions à
     venir non plus. Il faudrait un modèle pour la première, et la seconde
     dépend de ce que la maison verra vraiment. Une courbe modélisée posée à
@@ -1238,8 +1259,16 @@ function tipFor(track, f, i, t) {
     }
     default: {
       const temp = f.T[i], lo = f.bmin[i], hi = f.bmax[i];
+      const prev = f.fc && f.fc.past ? f.fc.past[i] : null;
+      // L'ecart n'a de sens que pour le DEHORS : c'est la seule des deux
+      // series prevues qu'on mesure aussi.
+      const gap = prev != null && f.out[i] != null
+        ? ` <span class="dim">(prévu ${prev.toFixed(1)}°, ${
+            Math.abs(f.out[i] - prev) < 0.05 ? 'pile'
+            : `${f.out[i] > prev ? '+' : '−'}${Math.abs(f.out[i] - prev).toFixed(1)}°`})</span>`
+        : '';
       return `${temp != null ? `<b>${temp.toFixed(1)}°</b>` : 'pas de mesure'}`
-        + `${f.out[i] != null ? ` · ext ${f.out[i].toFixed(1)}°` : ''}`
+        + `${f.out[i] != null ? ` · dehors ${f.out[i].toFixed(1)}°${gap}` : ''}`
         + `${lo != null && hi != null ? `<br>${dim(`objectif ${lo}–${hi}°`)}` : ''}`;
     }
   }
