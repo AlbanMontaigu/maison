@@ -32,6 +32,8 @@
   --occ: #6d3fc4;
   --velux: #5f7492;
   --now: #c0392b;
+  --sun: #b8860b;
+  --sun-fill: rgba(212, 160, 23, .20);
 }
 * { box-sizing: border-box; }
 body {
@@ -130,6 +132,7 @@ body {
 .stat.warn b { color: #9a4a06; }
 
 .chart { width: 100%; height: 120px; display: block; touch-action: pan-y; }
+.sun { width: 100%; height: 44px; display: block; touch-action: pan-y; }
 .strip { width: 100%; height: 16px; display: block; }
 
 /* One labelled row per actuator. The label column is fixed so every track in
@@ -172,6 +175,8 @@ body {
 }
 .yaxis .edge-top { transform: translateY(0); }
 .yaxis .edge-bot { transform: translateY(-100%); }
+/* Repère du seuil d'action des volets : même couleur que son trait. */
+.yaxis .sunhi { color: var(--warm); transform: translateY(-50%); }
 .track:first-child { margin-top: .4rem; margin-bottom: 2px; }
 /* Une piste de plus dans la grille (libelle vide), donc exactement la meme
    colonne que les traces -- et non une reproduction de la gouttiere qui

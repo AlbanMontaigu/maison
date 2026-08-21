@@ -11,7 +11,10 @@
  */
 
 const REFRESH_MS = 60_000;
-const PLOT_W = 1000, PLOT_H = 110, STRIP_H = 14;
+const PLOT_W = 1000, PLOT_H = 110, STRIP_H = 14, SUN_H = 40;
+// Seuil « plein soleil » du moteur (solar_high_threshold), en W/m². Trace en
+// repere sur la courbe du soleil : au-dessus, il agit sur les volets.
+const SOLAR_HIGH = 150;
 const VIEW_KEY = 'maison.view';
 // Alpha of a passive action (waiting, out of occupancy) on the decision track.
 const PASSIVE_OP = .45;
@@ -287,9 +290,55 @@ function nowMark(nowIdx, n, h) {
     + ` vector-effect="non-scaling-stroke"/>`;
 }
 
+// Le rayonnement se trace a part, pas en 4e courbe sur le graphe de
+// temperature : une seconde ordonnee dans le meme cadre (W/m² contre °C) est
+// exactement le genre de graphique qu'il faut expliquer pour etre lu.
+//
+// C'est le soleil recu par CETTE piece (rayonnement du ciel x facteur de sa
+// fenetre), pas la meteo : au meme instant une chambre peu exposee prend 34
+// W/m² quand la mezzanine en prend 274. C'est cette courbe-la qui explique
+// pourquoi une piece chauffe et pas sa voisine.
+function sunSvg(values, nowIdx, marks) {
+  const n = values.length;
+  const known = values.filter((v) => v != null);
+  if (!known.length) return '';
+  // Echelle bornee par le seuil du moteur : sans plancher, une journee sans
+  // soleil se dessinerait comme une belle journee, faute de reference.
+  const hi = Math.max(SOLAR_HIGH * 1.2, ...known);
+  const x = (i) => (i / Math.max(1, n - 1)) * PLOT_W;
+  const y = (v) => SUN_H - (v / hi) * SUN_H;
+
+  let d = '', area = '', open = false;
+  for (let i = 0; i < n; i++) {
+    if (values[i] == null) { open = false; continue; }
+    if (!open) { area += `M${x(i).toFixed(1)},${SUN_H}L`; d += `M`; open = true; }
+    else { area += 'L'; d += 'L'; }
+    const pt = `${x(i).toFixed(1)},${y(values[i]).toFixed(1)}`;
+    area += pt; d += pt;
+  }
+  if (open) area += `L${x(n - 1).toFixed(1)},${SUN_H}Z`;
+
+  let seps = '';
+  for (const i of marks.lines) {
+    seps += `<line x1="${x(i).toFixed(1)}" y1="0" x2="${x(i).toFixed(1)}" y2="${SUN_H}" stroke="var(--line)" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
+  }
+  const hiLine = `<line x1="0" y1="${y(SOLAR_HIGH).toFixed(1)}" x2="${PLOT_W}" y2="${y(SOLAR_HIGH).toFixed(1)}"`
+    + ` stroke="var(--warm)" stroke-width="1" stroke-dasharray="3 4" opacity=".7" vector-effect="non-scaling-stroke"/>`;
+
+  return `<svg class="sun" data-track="solar" viewBox="0 0 ${PLOT_W} ${SUN_H}" preserveAspectRatio="none" aria-hidden="true">`
+    + `${seps}<path d="${area}" fill="var(--sun-fill)"/>`
+    + `<path d="${d}" fill="none" stroke="var(--sun)" stroke-width="1.4" vector-effect="non-scaling-stroke"/>`
+    + `${hiLine}${nowMark(nowIdx, n, SUN_H)}</svg>`
+    // Quand le maximum du jour frole le seuil, les deux etiquettes se
+    // superposent : c'est le maximum qui cede, le repere porte plus de sens.
+    + `<div class="yaxis">`
+    + (hi > SOLAR_HIGH * 1.35 ? `<span class="edge-top">${Math.round(hi)} W/m²</span>` : '')
+    + `<span class="sunhi" style="top:${((y(SOLAR_HIGH) / SUN_H) * 100).toFixed(1)}%">plein soleil</span></div>`;
+}
+
 function trackRow(label, hint, svg) {
   // La courbe n'a pas le fond des pistes : c'est un trace, pas une barre.
-  const cls = svg.includes('class="chart"') ? 'tplot' : 'tbar';
+  const cls = /class="(chart|sun)"/.test(svg) ? 'tplot' : 'tbar';
   return `<div class="track"><span class="tlab" title="${esc(hint || label)}">${esc(label)}</span>`
     + `<div class="${cls}">${svg}</div></div>`;
 }
@@ -462,6 +511,8 @@ function zoneCard(zone, f, t, marks, nowIdx) {
     ${head}
     <div class="tracks">
       ${trackRow('température', 'Trait plein : la pièce. Pointillés : dehors. Fond vert : l\'objectif de température.', chartSvg(f, t, marks, nowIdx))}
+      ${(() => { const sun = f.has.solar ? sunSvg(f.solar, nowIdx, marks) : '';
+          return sun ? trackRow('soleil', 'Rayonnement reçu par la fenêtre de cette pièce, en W/m²', sun) : ''; })()}
       ${trackRow('décision', "Ce que la maison a décidé de faire à cet instant — une seule chose à la fois", trackSvg('act', nowIdx, f.act, (a) => a ? { fill: colorFor(a), op: meta(a).active || isAlert(a) ? .95 : PASSIVE_OP } : null))}
       ${f.has.occ
         ? trackRow('occupation', "Phase d'occupation de la zone", trackSvg('occ', nowIdx, f.occ, (v) => occMeta(v)))
@@ -609,6 +660,7 @@ function frameFor(zone, n, v) {
   return {
     T: pad((ser.T || []).slice(v.i0, v.i1)),
     out: pad((payload.outdoor?.T || []).slice(v.i0, v.i1)),
+    solar: cut(ser.solar),
     bmin: cut(ser.bmin), bmax: cut(ser.bmax),
     act: pad(expand(zone.runs || [], n).slice(v.i0, v.i1)),
     occ: cut(ser.occ), ac: cut(ser.ac), fan: cut(ser.fan), velux: cut(ser.velux),
@@ -617,7 +669,8 @@ function frameFor(zone, n, v) {
     // indistinguables d'une journee ou la clim n'a jamais tourne. L'absence de
     // donnee ne doit jamais se lire comme une absence d'activite : la piste dit
     // « donnee absente » au lieu de se dessiner vide.
-    has: { occ: 'occ' in ser, ac: 'ac' in ser, fan: 'fan' in ser, velux: 'velux' in ser },
+    has: { occ: 'occ' in ser, ac: 'ac' in ser, fan: 'fan' in ser, velux: 'velux' in ser,
+           solar: 'solar' in ser },
   };
 }
 
@@ -654,7 +707,11 @@ function render() {
     engEl.className = 'pill fresh';
   }
 
-  const oT = payload.outdoor?.T || [], oS = payload.outdoor?.solar || [];
+  const oT = payload.outdoor?.T || [];
+  // Le CIEL (`radiation`), pas `solar_now` : celui-ci est module par la fenetre
+  // de chaque zone et variait d'un facteur 8 entre pieces au meme instant. La
+  // serie globale gardait la derniere zone ecrite, donc une piece au hasard.
+  const oS = expand(payload.outdoor?.radiation || [], all.length);
   const lastIdx = (arr) => { for (let i = arr.length - 1; i >= 0; i--) if (arr[i] != null) return i; return -1; };
   const iO = lastIdx(oT), iS = lastIdx(oS);
   // « soleil 0 » ne disait rien : ni unite, ni echelle. Le nombre est un
@@ -665,7 +722,7 @@ function render() {
   const outEl = $('outdoor');
   outEl.textContent = `dehors ${iO >= 0 ? oT[iO].toFixed(1) + '°' : '—'}`
     + (iS >= 0 ? ` · ${solarWord(oS[iS])}` : '');
-  outEl.title = iS >= 0 ? `ensoleillement ${Math.round(oS[iS])} W/m² (fort au-delà de 150)` : '';
+  outEl.title = iS >= 0 ? `rayonnement du ciel ${Math.round(oS[iS])} W/m² (fort au-delà de ${SOLAR_HIGH})` : '';
 
   $('banners').innerHTML = bannerHtml(payload.house);
 
@@ -740,6 +797,12 @@ function helpHtml() {
       dessus de la courbe) et les échecs de driver. Bleu : action de
       refroidissement. Orange : de chauffage. Gris : neutre. Rouge : échec.
       Translucide : action passive (en attente, hors occupation).</li>
+      <li><b>soleil</b> — le rayonnement qui frappe la fenêtre de <em>cette</em>
+      pièce, en W/m². Ce n'est pas la météo : au même instant, une chambre peu
+      exposée en reçoit 34 quand la mezzanine en reçoit 274, pour un ciel
+      identique. C'est cette courbe qui explique pourquoi une pièce chauffe et
+      pas sa voisine. Le trait orange est le seuil au-delà duquel la maison
+      ferme les volets.</li>
       <li><b>occupation</b> — la phase d'occupation de la zone. Une case vide
       est une pièce inoccupée.</li>
       <li><b>clim</b> / <b>ventilo</b> — barre pleine = appareil en marche
@@ -843,6 +906,12 @@ function tipFor(track, f, i, t) {
       return `${noun} ${state}<br>${dim(runSpan(f[track], i, t))}`
         + (v ? `<br>${dim('allumé par la maison')}` : '');
     }
+    case 'solar': {
+      if (f.solar[i] == null) return 'pas de mesure';
+      const v = f.solar[i];
+      return `soleil sur cette pièce : <b>${v} W/m²</b><br>`
+        + dim(v >= SOLAR_HIGH ? 'assez fort pour agir sur les volets' : 'sous le seuil d\'action');
+    }
     case 'velux': {
       if (f.velux[i] == null) return 'pas de position connue';
       return `volet ${f.velux[i]}% ouvert<br>${dim(runSpan(f.velux, i, t))}`;
@@ -860,7 +929,7 @@ function bindTip() {
   const tip = $('tip');
   $('zones').addEventListener('pointermove', (ev) => {
     const card = ev.target.closest('.zone');
-    const svg = ev.target.closest('.chart, .strip');
+    const svg = ev.target.closest('.chart, .strip, .sun');
     if (!card || !svg || !payload) { tip.hidden = true; return; }
     const f = frames.get(card.dataset.zone);
     const t = viewT;
