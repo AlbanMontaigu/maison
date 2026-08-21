@@ -546,6 +546,40 @@ const frDate = (iso) => {
   return m ? `${m[3]}/${m[2]}` : String(iso || '');
 };
 
+// Combien coute l'electricite, en euros. Bloc MAISON : le Linky compte tout le
+// compteur, pas une piece -- l'afficher sur une carte de zone laisserait croire
+// que c'est la conso de cette piece.
+//
+// Le tarif vient du fichier de secrets et transite dans le payload : la page ne
+// multiplie rien, elle affiche des euros deja calcules. Un tarif illisible cote
+// collecteur donne des euros a null, et on retombe sur les kWh -- pas sur un
+// cout invente.
+const eur = (v) => v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+const kwh = (v) => v.toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' kWh';
+
+function energyHtml(e) {
+  if (!e) {
+    return `<div class="energy off"><b>Électricité</b>`
+      + `<span class="esub">consommation indisponible — le compteur n'a pas répondu</span></div>`;
+  }
+  // Un instantane vieux se dit vieux. Le seuil est large : le collecteur passe
+  // toutes les 10 min, une heure de retard est une panne, pas un retard.
+  const old = e.age_s != null && e.age_s > 3600;
+  const cell = (label, b) => b && b.kwh != null
+    ? `<span class="e"><i>${label}</i>${b.eur != null ? `<b>${eur(b.eur)}</b>` : ''}`
+      + `<em>${kwh(b.kwh)}</em></span>`
+    : '';
+  const now = e.now_kw != null
+    ? `<span class="e"><i>en ce moment</i><b>${e.now_kw.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} kW</b>`
+      + `${e.now_eur_h != null ? `<em>${eur(e.now_eur_h)} par heure</em>` : ''}</span>`
+    : '';
+  return `<div class="energy${old ? ' stale' : ''}">
+      <b class="etitle">Électricité</b>
+      ${cell("aujourd'hui", e.jour)}${cell('ce mois', e.mois)}${cell('cette année', e.annee)}${now}
+      ${old ? `<span class="esub">relevé vieux de ${ago(e.generated_at, Date.now())}</span>` : ''}
+    </div>`;
+}
+
 function bannerHtml(h) {
   if (!h) return '';
   const out = [];
@@ -726,7 +760,7 @@ function render() {
     + (iS >= 0 ? ` · ${solarWord(oS[iS])}` : '');
   outEl.title = iS >= 0 ? `rayonnement du ciel ${Math.round(oS[iS])} W/m² (fort au-delà de ${SOLAR_HIGH})` : '';
 
-  $('banners').innerHTML = bannerHtml(payload.house);
+  $('banners').innerHTML = energyHtml(payload.energy) + bannerHtml(payload.house);
 
   $('zones').innerHTML = payload.zones.length
     ? payload.zones.map((z) => {
@@ -823,6 +857,13 @@ function helpHtml() {
 
     <h3>Actions vues sur cette fenêtre</h3>
     <div class="chips">${actions || '<span class="chip">aucune</span>'}</div>
+
+    <h3>Électricité</h3>
+    <p>Ce que consomme <em>toute</em> la maison, relevé sur le compteur Linky :
+    le total du jour, du mois et de l'année, en euros au tarif du contrat, plus
+    la puissance appelée à l'instant et ce qu'elle coûterait sur une heure. Ce
+    n'est pas la consommation d'une pièce, et ce n'est pas que le chauffage —
+    c'est le compteur entier, machines et lumières comprises.</p>
 
     <h3>Le reste</h3>
     <ul>

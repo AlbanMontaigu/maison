@@ -72,6 +72,22 @@ body {
   margin: 0 .25rem .8rem; font-size: .84rem; color: var(--ink-dim); max-width: 46rem;
 }
 
+/* Bloc électricité : niveau MAISON, donc au-dessus des cartes de zone et pas
+   dedans — le Linky compte tout le compteur, pas une pièce. */
+.energy {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: .55rem 1.1rem;
+  background: var(--card); border: 1px solid var(--edge); border-radius: 14px;
+  padding: .7rem .85rem; margin-bottom: .75rem;
+}
+.energy .etitle { font-size: .88rem; font-weight: 660; }
+.energy .e { display: flex; flex-direction: column; line-height: 1.25; }
+.energy .e i { font-style: normal; font-size: .7rem; color: var(--ink-dim); }
+.energy .e b { font-size: 1.05rem; font-weight: 620; font-variant-numeric: tabular-nums; }
+.energy .e em { font-style: normal; font-size: .7rem; color: var(--ink-dim); }
+.energy .esub { flex-basis: 100%; font-size: .76rem; color: var(--ink-dim); }
+.energy.stale, .energy.off { background: #fdf0e6; border-color: #f0d3b6; }
+.energy.off .esub { flex-basis: auto; }
+
 .banner {
   border: 1px solid var(--edge); border-left-width: 4px; border-radius: 12px;
   background: var(--card); padding: .65rem .8rem; margin-bottom: .75rem;
