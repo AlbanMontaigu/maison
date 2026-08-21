@@ -28,7 +28,6 @@
   --ok: #16794a;
   --band: #16794a;
   --band-fill: rgba(22, 121, 74, .13);
-  --band-strong: rgba(22, 121, 74, .26);
   --fan: #0d7f78;
   --occ: #6d3fc4;
   --velux: #5f7492;
@@ -109,12 +108,6 @@ body {
 }
 .dev.on { background: #e4eefb; color: var(--cool); font-weight: 560; }
 .dev.fail { background: #fdecea; color: #a5281a; font-weight: 560; }
-
-/* Band gauge: where the room sits inside its comfort band, at a glance. */
-.gauge { height: 5px; border-radius: 3px; background: var(--card-2); position: relative; margin: .55rem 0 .15rem; }
-.gauge .in { position: absolute; top: 0; bottom: 0; background: var(--band-strong); border-radius: 3px; }
-.gauge .cur { position: absolute; top: -3px; width: 2px; height: 11px; background: var(--ink); border-radius: 2px; }
-.gauge-lab { display: flex; justify-content: space-between; font-size: .7rem; color: var(--ink-dim); }
 
 .chart { width: 100%; height: 120px; display: block; margin-top: .4rem; touch-action: pan-y; }
 .strip { width: 100%; height: 16px; display: block; }

@@ -209,22 +209,12 @@ function deviceChip(name, dev) {
 function zoneCard(zone, f, t, marks) {
   const c = zone.current;
   const m = meta(c.action);
+  // La bande de confort n'est plus dessinee ici : la courbe en dessous la
+  // trace deja, et en mieux -- l'enveloppe suit le programme jour/nuit au lieu
+  // de figer l'instant present. Elle reste lue pour colorer la temperature et
+  // reste chiffree dans la bulle du graphe.
   const band = c.band || {};
   const hasBand = band.min != null && band.max != null;
-
-  // Gauge: position inside the band, clamped. Outside the band the marker
-  // pins to the edge and the temperature colours itself instead.
-  let gauge = '';
-  if (hasBand && c.T != null) {
-    const span = Math.max(1, band.max - band.min);
-    const lo = band.min - span * 0.35, hi = band.max + span * 0.35;
-    const pct = (v) => Math.max(0, Math.min(100, ((v - lo) / (hi - lo)) * 100));
-    gauge = `<div class="gauge">
-        <span class="in" style="left:${pct(band.min).toFixed(1)}%;right:${(100 - pct(band.max)).toFixed(1)}%"></span>
-        <span class="cur" style="left:${pct(c.T).toFixed(1)}%"></span>
-      </div>
-      <div class="gauge-lab"><span>${band.min}°</span><span>${esc(c.band_name || '')}</span><span>${band.max}°</span></div>`;
-  }
 
   const tempCls = hasBand && c.T != null ? (c.T > band.max ? 'hot' : c.T < band.min ? 'cold' : '') : '';
   const devs = [deviceChip('clim', c.ac), deviceChip('ventilo', c.fan),
@@ -244,7 +234,6 @@ function zoneCard(zone, f, t, marks) {
       </div>
       <div class="zone-temp ${tempCls}">${c.T != null ? c.T.toFixed(1) : '—'}<small>°C</small></div>
     </div>
-    ${gauge}
     <div class="action ${m.active ? 'is-active' : ''} ${isAlert(c.action) ? 'is-alert' : ''}">
       <span class="emo">${m.emoji}</span><span class="lab">${esc(m.label)}</span>
     </div>
