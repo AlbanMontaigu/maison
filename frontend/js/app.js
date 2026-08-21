@@ -149,7 +149,7 @@ function chartSvg(f, t, marks, nowIdx) {
   // third hour over a day. Drawing them from one shared list is what keeps the
   // gridlines and the labels on the same pixels.
   let seps = '';
-  for (const [i] of marks) {
+  for (const i of marks.lines) {
     seps += `<line x1="${x(i).toFixed(1)}" y1="0" x2="${x(i).toFixed(1)}" y2="${PLOT_H}" stroke="var(--line)" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
   }
 
@@ -218,16 +218,17 @@ function trackRow(label, hint, svg) {
 // it 0.02px off and, worse, would drift the day the label column changes width.
 function axisHtml(t, marks, nowIdx) {
   const n = t.length;
-  if (n < 2 || !marks.length) return '';
-  let labels = marks.map(([i, l]) =>
-    `<span style="left:${((i / (n - 1)) * 100).toFixed(2)}%">${esc(l)}</span>`).join('');
+  if (n < 2 || !marks.labels.length) return '';
+  let labels = marks.labels.map(([pos, l]) =>
+    `<span style="left:${(pos * 100).toFixed(2)}%">${esc(l).replace('\n', '<br>')}</span>`).join('');
   // L'etiquette du marqueur porte l'heure : « maintenant » seul obligerait a
   // aller la chercher ailleurs sur la page.
   if (nowIdx > 0 && nowIdx < n - 1) {
     labels += `<span class="now" style="left:${((nowIdx / (n - 1)) * 100).toFixed(2)}%">`
       + `${esc(hhmm(t[nowIdx]))}</span>`;
   }
-  return `<div class="track"><span class="tlab"></span><div class="axis">${labels}</div></div>`;
+  return `<div class="track"><span class="tlab"></span>`
+    + `<div class="axis${view === 'week' ? ' axis-2l' : ''}">${labels}</div></div>`;
 }
 
 /* ── zone card ───────────────────────────────────────────────────────────── */
@@ -367,21 +368,41 @@ function buildView(all) {
   return { t, i0, i1: all.length, padStart, padEnd, nowIdx: padStart + real.length - 1 };
 }
 
-// Where the gridlines and the time labels go, computed once for every zone.
+// Traits et etiquettes, calcules une fois pour toutes les zones -- et
+// SEPAREMENT, parce qu'ils ne designent pas la meme chose.
+//
+// Sur la semaine, le trait marque une frontiere (minuit) mais l'etiquette
+// nomme un JOUR : la centrer sur le trait la faisait chevaucher ses deux
+// voisines, sept libellés de ~44 px pour 34 px disponibles a 390 px de large.
+// Centree dans sa journee, chacune dispose de toute la largeur du jour ; et sur
+// deux lignes (« sam. » au-dessus de « 15 ») elle tient sans rien perdre.
+//
+// Sur la journee, l'etiquette designe bien un instant : elle reste sur le trait.
 function viewMarks(t) {
-  const marks = [];
+  const n = t.length;
+  const lines = [], labels = [];
+  const at = (i) => i / Math.max(1, n - 1);
   if (view === 'week') {
-    for (let i = 1; i < t.length; i++) {
-      if (dayKey(t[i]) !== dayKey(t[i - 1])) marks.push([i, dayLabel(t[i])]);
+    const bounds = [0];
+    for (let i = 1; i < n; i++) {
+      if (dayKey(t[i]) !== dayKey(t[i - 1])) { lines.push(i); bounds.push(i); }
+    }
+    bounds.push(n);
+    for (let b = 0; b < bounds.length - 1; b++) {
+      const a = bounds[b], z = bounds[b + 1];
+      // Un jour partiel trop etroit n'a pas la place : pas d'etiquette plutot
+      // qu'une etiquette debordant sur la journee d'a cote.
+      if (z - a < n * 0.06) continue;
+      labels.push([at((a + z) / 2), dayLabel(t[a]).replace(' ', '\n')]);
     }
   } else {
     let last = -1;
-    for (let i = 0; i < t.length; i++) {
+    for (let i = 0; i < n; i++) {
       const h = Number(parts(t[i]).hour);
-      if (h % 3 === 0 && h !== last) { marks.push([i, `${String(h).padStart(2, '0')}h`]); last = h; }
+      if (h % 3 === 0 && h !== last) { lines.push(i); labels.push([at(i), `${String(h).padStart(2, '0')}h`]); last = h; }
     }
   }
-  return marks;
+  return { lines, labels };
 }
 
 // The payload ships every track run-length encoded over the full window; the

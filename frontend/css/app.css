@@ -139,7 +139,12 @@ body {
   position: relative; height: 1rem;
   font-size: .68rem; color: var(--ink-dim);
 }
-.axis span { position: absolute; top: 2px; transform: translateX(-50%); white-space: nowrap; }
+.axis span {
+  position: absolute; top: 2px; transform: translateX(-50%);
+  white-space: nowrap; text-align: center; line-height: 1.15;
+}
+/* Vue 7 j : libellé sur deux lignes, donc une piste d'axe plus haute. */
+.axis-2l { height: 2rem; }
 /* L'heure courante prend la couleur du marqueur qu'elle designe, et passe
    au-dessus des libellés d'heure fixes qu'elle peut chevaucher. */
 .axis .now {
