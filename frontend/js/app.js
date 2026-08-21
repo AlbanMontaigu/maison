@@ -105,6 +105,19 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 
 /* ── chart ───────────────────────────────────────────────────────────────── */
 
+// Graduations « rondes » dans l'intervalle trace. Un pas choisi dans une liste
+// fixe plutot que span/3 : 24.7, 26.4, 28.1 se lit moins vite que 25, 26, 27,
+// et l'echelle doit se lire sans effort ou elle ne sert a rien.
+function niceTicks(lo, hi) {
+  const raw = (hi - lo) / 3;
+  const step = [0.5, 1, 2, 2.5, 5, 10].find((v) => v >= raw) || 10;
+  const out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) {
+    out.push(Number(v.toFixed(2)));
+  }
+  return out;
+}
+
 function chartSvg(f, t, marks, nowIdx) {
   const n = t.length;
   const T = f.T, bmin = f.bmin, bmax = f.bmax, out = f.out;
@@ -153,13 +166,36 @@ function chartSvg(f, t, marks, nowIdx) {
     seps += `<line x1="${x(i).toFixed(1)}" y1="0" x2="${x(i).toFixed(1)}" y2="${PLOT_H}" stroke="var(--line)" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
   }
 
+  // Ordonnee : traits dans le SVG, chiffres en HTML par-dessus. Le SVG est
+  // etire horizontalement (viewBox 1000 pour ~240 px, preserveAspectRatio
+  // none) -- un <text> dedans serait comprime d'un facteur 4 et illisible.
+  const ticks = niceTicks(lo, hi);
+  let grid = '', yLabels = '';
+  ticks.forEach((v, k) => {
+    grid += `<line x1="0" y1="${y(v).toFixed(1)}" x2="${PLOT_W}" y2="${y(v).toFixed(1)}"`
+      + ` stroke="var(--line)" stroke-width="1" stroke-dasharray="2 4" opacity=".8"`
+      + ` vector-effect="non-scaling-stroke"/>`;
+    // L'unite une seule fois, sur la graduation du haut : la repeter trois fois
+    // n'apprend rien et encombre un graphe de 240 px de large.
+    // Une graduation peut tomber sur le bord meme du trace ; centree, la moitie
+    // de l'etiquette deborderait sur la ligne d'au-dessus (les chips) ou sur la
+    // premiere piste. Aux bords, elle bascule a l'interieur au lieu d'etre
+    // recentree -- elle reste collee a SON trait, ce qu'un recadrage perdrait.
+    const pct = (y(v) / PLOT_H) * 100;
+    const edge = pct < 8 ? ' edge-top' : pct > 92 ? ' edge-bot' : '';
+    yLabels += `<span class="${edge.trim()}" style="top:${pct.toFixed(2)}%">`
+      + `${v}${k === ticks.length - 1 ? '°' : ''}</span>`;
+  });
+
   return `<svg class="chart" viewBox="0 0 ${PLOT_W} ${PLOT_H}" preserveAspectRatio="none" aria-hidden="true">
+    ${grid}
     ${seps}
     ${bandPath ? `<path d="${bandPath}" fill="var(--band-fill)"/>` : ''}
     <path d="${line(out)}" fill="none" stroke="var(--ink-dim)" stroke-width="1" stroke-dasharray="3 3" opacity=".55" vector-effect="non-scaling-stroke"/>
     <path d="${line(T)}" fill="none" stroke="var(--ink)" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
     ${nowMark(nowIdx, n, PLOT_H)}
-  </svg>`;
+    <line x1="0" y1="${PLOT_H}" x2="${PLOT_W}" y2="${PLOT_H}" stroke="var(--ink-dim)" stroke-width="1" vector-effect="non-scaling-stroke"/>
+  </svg><div class="yaxis">${yLabels}</div>`;
 }
 
 // One row per actuator, all on the chart's x axis. A single mixed strip could
@@ -219,12 +255,25 @@ function trackRow(label, hint, svg) {
 function axisHtml(t, marks, nowIdx) {
   const n = t.length;
   if (n < 2 || !marks.labels.length) return '';
-  let labels = marks.labels.map(([pos, l]) =>
-    `<span style="left:${(pos * 100).toFixed(2)}%">${esc(l).replace('\n', '<br>')}</span>`).join('');
+  const nowPos = nowIdx > 0 && nowIdx < n - 1 ? nowIdx / (n - 1) : null;
+  // Une graduation fixe trop proche de l'heure courante disparait : l'etiquette
+  // « maintenant » a un fond opaque et la recouvrait a moitie, ce qui donnait
+  // un « 21h » tronque en « 2 » -- pire qu'absent, parce que ca se lit comme un
+  // chiffre. C'est la graduation fixe qui cede : l'heure reelle prime.
+  //
+  // Le seuil vient de la largeur des etiquettes, pas d'un tatonnement : sur un
+  // axe de ~240 px, « 22:35 » fait ~40 px et « 21h » ~26 px, donc les centres
+  // doivent etre distants de (40+26)/2 = 33 px, soit 0.14 de la largeur. Avec
+  // des graduations toutes les 3 h (0.125), cela retire exactement la plus
+  // proche, jamais la suivante (0.25).
+  let labels = marks.labels
+    .filter(([pos]) => nowPos === null || Math.abs(pos - nowPos) > 0.14)
+    .map(([pos, l]) => `<span style="left:${(pos * 100).toFixed(2)}%">${esc(l).replace('\n', '<br>')}</span>`)
+    .join('');
   // L'etiquette du marqueur porte l'heure : « maintenant » seul obligerait a
   // aller la chercher ailleurs sur la page.
-  if (nowIdx > 0 && nowIdx < n - 1) {
-    labels += `<span class="now" style="left:${((nowIdx / (n - 1)) * 100).toFixed(2)}%">`
+  if (nowPos !== null) {
+    labels += `<span class="now" style="left:${(nowPos * 100).toFixed(2)}%">`
       + `${esc(hhmm(t[nowIdx]))}</span>`;
   }
   return `<div class="track"><span class="tlab"></span>`
@@ -548,8 +597,12 @@ function helpHtml() {
     <h3>La courbe</h3>
     <p>Trait plein : la température de la pièce. Pointillés : la température
     extérieure. Le fond vert est la bande de confort visée — elle n'est pas
-    plate, elle suit le programme jour / nuit de la zone. La jauge sous le titre
-    montre où la pièce se situe dans sa bande à l'instant présent.</p>
+    plate, elle suit le programme jour / nuit de la zone.</p>
+    <p><b>Les axes.</b> En ordonnée, des graduations en °C (l'unité n'est
+    écrite qu'une fois, en haut) avec leurs pointillés horizontaux ; l'échelle
+    est propre à chaque pièce et s'ajuste à ce qu'elle a vécu sur la fenêtre —
+    deux cartes voisines ne sont donc pas à la même échelle. En abscisse, le
+    temps, partagé au pixel près avec les pistes du dessous.</p>
 
     <h3>Les pistes</h3>
     <p>Chaque ligne est une lecture verticale du même axe de temps que la courbe.

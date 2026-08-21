@@ -139,8 +139,22 @@ body {
   border-radius: 3px; overflow: hidden;
 }
 /* Meme colonne que .tbar — c'est ce qui aligne la courbe sur les pistes — mais
-   sans le fond ni l'arrondi : un trace, pas une barre. */
-.tplot { flex: 1 1 auto; min-width: 0; }
+   sans le fond ni l'arrondi : un trace, pas une barre. `relative` porte les
+   graduations de l'ordonnee, posees en HTML au-dessus du SVG. */
+.tplot { flex: 1 1 auto; min-width: 0; position: relative; }
+
+/* Chiffres de l'ordonnee. En HTML et non en <text> SVG : le graphe est etire
+   horizontalement (viewBox 1000 pour ~240 px), un texte dedans serait comprime
+   d'un facteur 4. Fond de carte pour rester lisibles quand la courbe passe
+   dessous, et pointer-events:none pour ne pas manger le survol du graphe. */
+.yaxis { position: absolute; inset: 0; pointer-events: none; }
+.yaxis span {
+  position: absolute; left: 0; transform: translateY(-50%);
+  font-size: .64rem; line-height: 1; color: var(--ink-dim);
+  background: var(--card); padding: 1px 3px; border-radius: 3px;
+}
+.yaxis .edge-top { transform: translateY(0); }
+.yaxis .edge-bot { transform: translateY(-100%); }
 .track:first-child { margin-top: .4rem; margin-bottom: 2px; }
 /* Une piste de plus dans la grille (libelle vide), donc exactement la meme
    colonne que les traces -- et non une reproduction de la gouttiere qui
