@@ -122,7 +122,12 @@ const PLAIN_LABELS = {
   OCC_OFF: 'personne dans la pièce',
   NO_ACTION_HOT: 'trop chaud, rien de plus à faire',
   NO_ACTION_COLD: 'trop froid, rien de plus à faire',
-  DIRECTIVE_OFF: 'appareils coupés (absence prévue)',
+  // Volontairement GENERIQUE. Ce code est emis des qu'une directive d'agenda
+  // bloque un actionneur -- une absence, mais aussi un simple « clim 2 off ».
+  // L'ancien libelle disait « absence prevue » et faisait donc passer une
+  // consigne ponctuelle pour un depart : le moteur, lui, nomme les deux
+  // distinctement (« directive absent (motif) » contre « directive clim2_off »).
+  DIRECTIVE_OFF: "appareil coupé (consigne de l'agenda)",
   AC_WAIT: 'clim en pause (protection du compresseur)',
   HEAT_WAIT: 'chauffage en pause (protection de la chaudière)',
   AC_RETRY: "clim relancée (elle n'avait pas répondu)",
@@ -513,6 +518,29 @@ function weekStats(zone, f, t) {
 //
 // Effet de bord voulu : les bornes de la bande redeviennent lisibles sans
 // survol, ce que le retrait de la jauge avait fait perdre sur telephone.
+// Le moteur nomme ses directives « directive absent (motif) » ou
+// « directive clim2_off ». Ce sont deux choses differentes : la premiere dit
+// que la maison est vide, la seconde est une consigne ponctuelle sur UN
+// appareil. Les confondre -- ce que faisait un « absence declaree » pose sur
+// tout ce qui portait une directive -- annonce un depart qui n'a pas lieu.
+//
+// L'aiguillage se fait sur le prefixe exact du moteur, pas sur une
+// ressemblance : un libelle inconnu retombe sur « consigne de l'agenda »
+// plutot que d'etre range de force dans l'une des deux cases.
+const DIRECTIVE_TARGETS = {
+  clim1_off: 'clim 1', clim2_off: 'clim 2', clim_salon_off: 'clim du salon',
+};
+
+function directiveLabel(txt) {
+  const raw = String(txt || '');
+  const abs = /^directive absent(?:\s*\((.*)\))?\s*$/.exec(raw);
+  if (abs) return `absence déclarée${abs[1] ? ` (${esc(abs[1])})` : ''}`;
+  const key = raw.replace(/^directive\s+/, '');
+  return DIRECTIVE_TARGETS[key]
+    ? `consigne : ${DIRECTIVE_TARGETS[key]} coupée`
+    : `consigne de l'agenda : ${esc(key)}`;
+}
+
 function plainState(c) {
   const b = c.band || {};
   const hasBand = b.min != null && b.max != null;
@@ -527,7 +555,7 @@ function plainState(c) {
   } else {
     bits.push('pas de mesure');
   }
-  if (c.directive) bits.push('absence déclarée');
+  if (c.directive) bits.push(directiveLabel(c.directive));
   else if (c.occupancy_phase === 'off') {
     bits.push(c.occ_next_start ? `personne ici avant ${esc(c.occ_next_start)}` : 'personne ici');
   }
@@ -1172,6 +1200,11 @@ function helpHtml() {
       identique. C'est cette courbe qui explique pourquoi une pièce chauffe et
       pas sa voisine. Le trait orange est le seuil au-delà duquel la maison
       ferme les volets.</li>
+      <li>Une <b>consigne d'agenda</b> peut couper un appareil sans que la
+      maison soit vide : « clim 2 coupée » est une consigne ponctuelle, pas un
+      départ. La carte les nomme distinctement — « consigne : … » d'un côté,
+      « absence déclarée » de l'autre, et seule la seconde allume le bandeau en
+      haut de page.</li>
       <li><b>occupation</b> — la phase d'occupation de la zone. Une case vide
       est une pièce inoccupée. À droite du trait rouge, la barre passe à
       <em>mi-hauteur</em> : c'est l'occupation <em>prévue</em>. Elle n'est pas
