@@ -168,15 +168,7 @@ const OCC_META = {
   always:  { fill: 'var(--occ)',  op: .40, label: 'permanente' },
   off:     { fill: null,                   label: 'vide' },
 };
-// Une phase prefixee « + » est PLANIFIEE, pas vecue : meme couleur, barre a
-// mi-hauteur. Une difference de forme et non d'opacite, parce que l'opacite
-// distingue deja les phases entre elles (occupee .95 contre permanente .40) et
-// qu'un second usage de la meme variable rendrait les deux illisibles.
-const occMeta = (v) => {
-  const planned = typeof v === 'string' && v[0] === '+';
-  const m = OCC_META[planned ? v.slice(1) : v] || { fill: null, label: v || '—' };
-  return planned ? { ...m, h: STRIP_H * 0.45, label: m.label + ' (prévu)' } : m;
-};
+const occMeta = (v) => OCC_META[v] || { fill: null, label: v || '—' };
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -703,9 +695,14 @@ function zoneCard(zone, f, t, marks, nowIdx) {
           return sun ? trackRow('soleil', 'Rayonnement reçu par la fenêtre de cette pièce, en W/m²', sun) : ''; })()}
       ${trackRow('décision', "Ce que la maison a décidé de faire à cet instant — une seule chose à la fois", trackSvg('act', nowIdx, f.act, (a) => a ? { fill: colorFor(a), op: meta(a).active || isAlert(a) ? .95 : PASSIVE_OP } : null))}
       ${f.has.occ
-        ? trackRow('occupation', "Phase d'occupation — barre pleine : vécu, mi-hauteur : prévu par les règles et l'agenda",
-            trackSvg('occ', nowIdx, f.occ.map((v, i) => v != null ? v
-              : (f.occPlan[i] != null ? '+' + f.occPlan[i] : null)), (v) => occMeta(v)))
+        // Le vecu et le prevu se dessinent PAREIL. L'occupation est une regle,
+        // pas une prevision : les fenetres sont dans les reglages et l'agenda du
+        // jour est deja interprete, donc la barre de 22h est aussi certaine que
+        // celle de 8h. Le trait rouge suffit a dire ou on en est. Une barre a
+        // mi-hauteur laissait entendre un doute qui n'existe pas.
+        ? trackRow('occupation', "Phase d'occupation de la zone — règles horaires et agenda du jour",
+            trackSvg('occ', nowIdx, f.occ.map((v, i) => (v != null ? v : f.occPlan[i])),
+              (v) => occMeta(v)))
         : missingRow('occupation')}
       ${!zone.has_ac ? '' : f.has.ac
         ? trackRow('clim', 'Clim en marche, allumée par la maison', trackSvg('ac', nowIdx, f.ac, (v) => v ? { fill: 'var(--cool)' } : null))
@@ -1171,10 +1168,10 @@ function helpHtml() {
     calculé à partir de la prévision — un « prévu contre mesuré » y opposerait
     la prévision à elle-même.</p>
     <p>L'occupation, elle, fait exception : c'est une <em>règle</em>, pas une
-    prévision. Elle est donc remplie d'avance pour toute la journée, en
-    mi-hauteur pour qu'on ne la confonde pas avec de l'occupation vécue. Et elle
-    ne compte jamais dans les moyennes ni dans les durées : celles-ci ne portent
-    que sur ce qui a eu lieu.</p>
+    prévision. Elle est donc remplie d'avance pour toute la journée et dessinée
+    à l'identique — la barre de 22 h est aussi certaine que celle de 8 h. Elle
+    ne compte en revanche jamais dans les moyennes ni dans les durées : celles-ci
+    ne portent que sur ce qui a eu lieu.</p>
     <p>La température <em>intérieure</em> n'est pas prévue, et les décisions à
     venir non plus. Il faudrait un modèle pour la première, et la seconde
     dépend de ce que la maison verra vraiment. Une courbe modélisée posée à
@@ -1206,12 +1203,11 @@ function helpHtml() {
       « absence déclarée » de l'autre, et seule la seconde allume le bandeau en
       haut de page.</li>
       <li><b>occupation</b> — la phase d'occupation de la zone. Une case vide
-      est une pièce inoccupée. À droite du trait rouge, la barre passe à
-      <em>mi-hauteur</em> : c'est l'occupation <em>prévue</em>. Elle n'est pas
-      devinée — les fenêtres sont dans les réglages et l'agenda du jour est déjà
-      interprété, donc la suite de la journée est connue. Seul le
-      pré-refroidissement n'y figure pas : il dépend de la température qu'aura
-      la pièce, et on ne prédit pas l'intérieur.</li>
+      est une pièce inoccupée. La barre couvre <em>toute</em> la journée, à
+      venir comprise, et de la même façon : ce n'est pas une prévision mais une
+      règle — les fenêtres sont dans les réglages, l'agenda du jour est déjà
+      interprété. Seul le pré-refroidissement n'y figure pas : il dépend de la
+      température qu'aura la pièce, et on ne prédit pas l'intérieur.</li>
       <li><b>clim</b> / <b>ventilo</b> — barre pleine = appareil en marche
       <em>allumé par la maison</em>. C'est le seul état que la maison
       enregistre : un appareil allumé à la main n'apparaît pas ici.</li>
