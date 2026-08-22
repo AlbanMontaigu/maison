@@ -957,21 +957,29 @@ function forecastAt(ts, times, values) {
 function forecastArrays(zoneName, tl, nowIdx) {
   const fc = payload.forecast;
   const empty = { out: [], solar: [], past: [] };
-  if (!fc || nowIdx < 0 || view !== 'day') return empty;
-  const solarSrc = (fc.solar || {})[zoneName];
+  // La comparaison prevu/mesure vaut pour toute journee dont on a l'archive --
+  // y compris une journee FINIE, ou elle vaut meme le plus : elle est alors
+  // complete. Elle ne suit donc plus `nowIdx`, seulement la disponibilite de
+  // l'archive du jour affiche. La vue 7 j en est exclue : l'archive ne garde
+  // que deux jours, superposer une prevision sur un sixieme de la fenetre
+  // donnerait un trait qui commence nulle part.
+  if (!fc || view === 'week' || !tl.length) return empty;
+  const issued = (fc.archive || {})[dayKey(tl[tl.length - 1])];
   const out = new Array(tl.length).fill(null);
   const solar = new Array(tl.length).fill(null);
-  // Ce qui avait ete PREVU pour les heures deja passees, fige au premier export
-  // du jour. Sans cette archive on comparerait la mesure a une prevision
-  // corrigee apres coup, ce qui flatte la prevision.
-  const issued = fc.issued;
   const past = new Array(tl.length).fill(null);
   if (issued) {
-    for (let i = 0; i <= Math.min(nowIdx, tl.length - 1); i++) {
+    // Toute la fenetre, pas seulement jusqu'au marqueur : sur une journee
+    // close il n'y a pas de marqueur, et sur la journee en cours le trace du
+    // futur prend le relais avec la prevision la plus recente.
+    const upTo = nowIdx >= 0 ? Math.min(nowIdx, tl.length - 1) : tl.length - 1;
+    for (let i = 0; i <= upTo; i++) {
       const v = forecastAt(tl[i], issued.t, issued.outdoor);
       if (v != null) past[i] = Math.round(v * 10) / 10;
     }
   }
+  if (nowIdx < 0 || view !== 'day') return { out, solar, past, issuedAt: issued && issued.issued_at };
+  const solarSrc = (fc.solar || {})[zoneName];
   for (let i = nowIdx; i < tl.length; i++) {
     const v = forecastAt(tl[i], fc.t, fc.outdoor);
     if (v != null) out[i] = Math.round(v * 10) / 10;
