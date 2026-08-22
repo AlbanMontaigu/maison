@@ -1168,9 +1168,15 @@ function helpHtml() {
     derniers <em>est</em> l'écart : large, la météo s'est trompée ; absente, elle
     avait vu juste. Le prévu court aussi sur les heures déjà passées — c'est ce
     qui avait été annoncé, figé au premier relevé de la journée. Survoler donne
-    le chiffre (« dehors 13,9°, prévu 16,1°, −2,2° »). L'archive est indispensable — la météo réécrit ses heures passées
-    à chaque appel, et comparer sans elle opposerait la mesure à une prévision
-    corrigée après coup, ce qui flatte la prévision.</p>
+    le chiffre (« dehors 13,9°, prévu 16,1°, −2,2° »). L'archive est
+    indispensable — la météo réécrit ses heures passées à chaque appel, et
+    comparer sans elle opposerait la mesure à une prévision corrigée après coup,
+    ce qui flatte la prévision.</p>
+    <p>La comparaison reste sur une journée <em>finie</em> — c'est même là
+    qu'elle vaut le plus, puisqu'elle est alors complète. Elle vaut donc aussi
+    sur « Hier », dès lors que la prévision de ce jour-là a été archivée. Pas
+    sur « 7 j » : l'archive ne garde que deux jours, et un trait couvrant un
+    sixième de la fenêtre commencerait nulle part.</p>
     <p>L'écart n'est donné que pour le <em>dehors</em> : c'est la seule des deux
     courbes prévues qu'on mesure aussi. Le soleil d'une pièce est lui-même
     calculé à partir de la prévision — un « prévu contre mesuré » y opposerait
