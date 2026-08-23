@@ -1092,6 +1092,12 @@ function render() {
   const zones = shown.length ? shown : payload.zones;
   $('back').innerHTML = solo && shown.length
     ? '<a class="back" href="#">← toutes les pièces</a>' : '';
+  // Une seule piece : la grille repasse a une colonne. Sans ca, la carte reste
+  // dans la premiere des trois colonnes et laisse les deux autres vides -- une
+  // tuile perdue au bord d'un ecran large, alors que c'est LA page de cette
+  // piece. La classe est posee ici plutot qu'avec `:has()` en CSS : le solo est
+  // deja calcule, et ca ne depend pas du support du selecteur.
+  $('zones').classList.toggle('solo', !!(solo && shown.length));
 
   if (v.empty) {
     $('zones').innerHTML = '<p class="empty">Pas encore de journée complète avant aujourd\'hui.</p>';

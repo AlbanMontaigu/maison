@@ -119,6 +119,9 @@ body {
 .zones { display: grid; gap: .75rem; grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 720px) { .zones { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (min-width: 1180px) { .zones { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+/* Page d'une seule piece : pleine largeur, quelle que soit la taille d'ecran.
+   Deux classes, donc l'emporte sur les regles ci-dessus sans !important. */
+.zones.solo { grid-template-columns: minmax(0, 1fr); }
 
 /* A border, not just a fill: white cards on a near-white page need an edge to
    read as cards at all. The shadow alone disappears on a cheap phone screen. */
@@ -324,8 +327,10 @@ body {
    une telecommande. Les boutons sont dimensionnes au pouce (44 px de haut),
    parce que cette page se lit sur un telephone. */
 .acts {
-  max-width: 62rem;
-  margin: 1rem auto 0;
+  /* Pas de largeur maximale : le panneau doit s'aligner exactement sur les
+     cartes au-dessus. Plafonne, il flottait centre sous une grille pleine
+     largeur -- deux bords differents sur la meme page. */
+  margin: 1rem 0 0;
   padding: .85rem 1rem 1rem;
   background: var(--card);
   border: 1px solid var(--edge);
