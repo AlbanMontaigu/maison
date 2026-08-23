@@ -801,25 +801,69 @@ function energyCurve(e) {
       : 'pas encore assez de relevés pour tracer la courbe'}</div>`;
   }
 
-  const W = 1000, H = 46;
+  // En euros par heure. C'est la MEME courbe que les kW a un facteur pres (le
+  // tarif) : la forme ne change pas, seule l'unite parle. Sans tarif lisible on
+  // retombe sur les kW plutot que d'inventer un cout -- meme regle que le reste
+  // du bloc.
+  const tarif = e.tarif_kwh_eur;
+  const unit = tarif ? (v) => v * tarif : (v) => v;
+  const fmt = tarif
+    ? (v) => v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €/h'
+    : (v) => v.toLocaleString('fr-FR', { maximumFractionDigits: 2 }) + ' kW';
+
+  const W = 1000, H = 60;
   const t0 = use[0][0], t1 = use[use.length - 1][0];
-  const hi = Math.max(...use.map((p) => p[1])) || 1;
   const x = (ts) => (t1 === t0 ? W : ((ts - t0) / (t1 - t0)) * W);
+
+  const hi = Math.max(...use.map((p) => unit(p[1]))) || 1;
   const y = (v) => H - (v / hi) * H;
   let d = '', area = `M0,${H}L`;
   use.forEach((p, k) => {
-    const pt = `${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`;
+    const pt = `${x(p[0]).toFixed(1)},${y(unit(p[1])).toFixed(1)}`;
     d += (k ? 'L' : 'M') + pt;
     area += (k ? 'L' : '') + pt;
   });
   area += `L${W},${H}Z`;
-  const kw = (v) => v.toLocaleString('fr-FR', { maximumFractionDigits: 2 }) + ' kW';
+
+  // Temperature exterieure REELLE, sur la meme abscisse. Elle est prise dans le
+  // payload par son horodatage, pas par son index : les deux series n'ont ni le
+  // meme pas (10 min contre 30) ni la meme etendue, et les aligner par rang
+  // ferait glisser la temperature de plusieurs heures.
+  //
+  // Deux unites sur un meme dessin peuvent faire lire une correlation qui
+  // n'existe pas. Chaque echelle est donc NOMMEE, et la temperature est en
+  // pointilles dans la couleur « dehors » deja utilisee par les courbes de
+  // pieces -- elle se lit comme un repere, pas comme une seconde mesure de cout.
+  const oT = [];
+  const ts = payload.t || [], oa = (payload.outdoor || {}).T || [];
+  for (let i = 0; i < ts.length; i++) {
+    if (oa[i] == null || ts[i] < t0 || ts[i] > t1) continue;
+    oT.push([ts[i], oa[i]]);
+  }
+  let temp = '', tempLbl = '';
+  if (oT.length >= 2) {
+    const lo = Math.min(...oT.map((q) => q[1])), hiT = Math.max(...oT.map((q) => q[1]));
+    // Bande de 6 °C au minimum : sur une nuit calme, l'ecart reel peut etre de
+    // 0,3 °C et une echelle collee au min/max transformerait ce souffle en
+    // montagnes russes.
+    const span = Math.max(6, hiT - lo);
+    const mid = (lo + hiT) / 2;
+    const yT = (v) => H - ((v - (mid - span / 2)) / span) * H;
+    temp = '<path d="' + oT.map((q, k) =>
+      (k ? 'L' : 'M') + `${x(q[0]).toFixed(1)},${yT(q[1]).toFixed(1)}`).join('')
+      + '" fill="none" stroke="var(--neutral)" stroke-width="1.4" stroke-dasharray="4 3"'
+      + ' vector-effect="non-scaling-stroke"/>';
+    tempLbl = `<span class="etemp">dehors ${lo.toFixed(1)}–${hiT.toFixed(1)}°</span>`;
+  }
+
   return `<div class="ecurve">
       <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
         <path d="${area}" fill="var(--sun-fill)"/>
         <path d="${d}" fill="none" stroke="var(--sun)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+        ${temp}
       </svg>
-      <span class="ehi">pointe ${esc(kw(hi))}</span>
+      <span class="ehi">pointe ${esc(fmt(hi))}</span>
+      ${tempLbl}
       <span class="espan">${esc(stamp(t0, t1))} → ${esc(stamp(t1, t1))}</span>
     </div>`;
 }

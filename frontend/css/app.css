@@ -87,12 +87,20 @@ body {
 .energy .etitle { font-size: .88rem; font-weight: 660; }
 /* Courbe du coût : niveau maison, donc pleine largeur du bloc. */
 .ecurve { position: relative; margin-top: .6rem; }
-.ecurve svg { width: 100%; height: 48px; display: block; }
+.ecurve svg { width: 100%; height: 62px; display: block; }
 .ecurve .ehi, .ecurve .espan {
   position: absolute; font-size: .64rem; color: var(--ink-dim);
   background: var(--card); padding: 0 3px; border-radius: 3px;
 }
 .ecurve .ehi { top: 0; left: 0; }
+/* La temperature exterieure partage le dessin mais pas l'echelle : son etendue
+   est ecrite a cote de la courbe, sinon deux unites superposees se lisent comme
+   une seule et font croire a une correlation qu'on n'a pas mesuree. */
+.ecurve .etemp {
+  position: absolute; top: 0; right: 0;
+  font-size: .68rem; color: var(--ink-dim); background: var(--card);
+  padding: 0 .2rem; border-radius: 3px;
+}
 .ecurve .espan { bottom: 0; right: 0; }
 .ecurve.empty {
   font-size: .76rem; color: var(--ink-dim);
