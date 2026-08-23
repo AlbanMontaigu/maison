@@ -50,6 +50,15 @@ let viewT = [];
 // render(), donc toujours coherente avec ce qui est dessine.
 let viewNowIdx = -1;
 const frames = new Map();
+// Pieces ayant recu une consigne depuis le chargement : nom -> instant du clic.
+// Sert au SEUL retour visuel que la page puisse donner honnetement. Les courbes
+// et l'etat des appareils viennent du payload pousse toutes les 10 min : ils ne
+// peuvent PAS bouger tout de suite, et les faire bouger serait afficher une
+// mesure inventee. Ce qu'on montre est donc autre chose -- « la consigne est
+// posee, le releve suivra » -- et ca s'efface tout seul quand le payload,
+// devenu plus recent que le clic, porte enfin la nouvelle.
+const acted = new Map();
+const FLASH_MS = 1600;
 
 const $ = (id) => document.getElementById(id);
 
@@ -519,8 +528,16 @@ function weekStats(zone, f, t) {
 // L'aiguillage se fait sur le prefixe exact du moteur, pas sur une
 // ressemblance : un libelle inconnu retombe sur « consigne de l'agenda »
 // plutot que d'etre range de force dans l'une des deux cases.
+// Motif -> phrase. Les trois premieres cles viennent du cron d'agenda et
+// nomment leur piece ; les trois suivantes sont les consignes posees a la main,
+// qui parlent de l'appareil de LA piece affichee. Le volet est a part : il est
+// FIGE, pas coupe -- dire « coupe » ferait croire a une fermeture, soit
+// l'inverse d'un volet reste ouvert.
 const DIRECTIVE_TARGETS = {
-  clim1_off: 'clim 1', clim2_off: 'clim 2', clim_salon_off: 'clim du salon',
+  clim1_off: 'clim 1 coupée', clim2_off: 'clim 2 coupée',
+  clim_salon_off: 'clim du salon coupée',
+  clim: 'clim coupée', ventilo: 'ventilateur coupé',
+  volet: 'volet figé — le moteur n\'y touche plus',
 };
 
 function directiveLabel(txt) {
@@ -529,7 +546,7 @@ function directiveLabel(txt) {
   if (abs) return `absence déclarée${abs[1] ? ` (${esc(abs[1])})` : ''}`;
   const key = raw.replace(/^directive\s+/, '');
   return DIRECTIVE_TARGETS[key]
-    ? `consigne : ${DIRECTIVE_TARGETS[key]} coupée`
+    ? `consigne : ${DIRECTIVE_TARGETS[key]}`
     : `consigne de l'agenda : ${esc(key)}`;
 }
 
@@ -679,7 +696,14 @@ function zoneCard(zone, f, t, marks, nowIdx) {
     <div class="devs">${devs}</div>`;
 
   const open = zoneFromHash() === zone.name;
-  return `<section class="zone${open ? ' solo' : ''}" data-zone="${esc(zone.name)}">
+  const at = acted.get(zone.name);
+  // `generated_at` est l'heure de l'EXPORT, pas celle du navigateur : la
+  // pastille disparait quand la maison a reellement reparle, pas apres un delai
+  // devine ici.
+  const pending = at && new Date(payload.generated_at).getTime() < at;
+  const flash = at && Date.now() - at < FLASH_MS;
+  return `<section class="zone${open ? ' solo' : ''}${flash ? ' acted' : ''}" data-zone="${esc(zone.name)}">
+    ${pending ? `<div class="pending">✓ Consigne posée — le relevé suivra au prochain envoi</div>` : ''}
     <div class="zone-head">
       <div>
         <div class="zone-name">${open ? esc(zone.name)
@@ -1665,6 +1689,7 @@ async function sendDirective(body) {
     // whether this took effect now or waits for the next tick -- rewording it
     // here would be inventing a certainty.
     ctlSaid = { ok: j.ok, text: j.text || j.error || (j.ok ? 'appliqué' : 'refusé') };
+    if (j.ok) markActed(body);
   } catch (e) {
     ctlSaid = { ok: false, text: `Commande non transmise (${e.message}). Rien n'a changé dans la maison.` };
   }
@@ -1675,6 +1700,19 @@ async function sendDirective(body) {
   // catch up at the next export. Refreshing now costs nothing and shows the
   // new directive as soon as it lands.
   load();
+}
+
+// Quelles cartes une commande vient-elle de toucher ? Une commande de piece n'en
+// touche qu'une ; `absent` et les consignes Thea valent pour toute la maison, et
+// n'en marquer aucune laisserait un clic sans le moindre accuse de reception.
+function markActed(body) {
+  const now = Date.now();
+  const solo = body.zone || (ctl.zones && Object.entries(ctl.zones)
+    .find(([, kinds]) => Object.values(kinds).some((k) => k.verb === body.cmd))?.[0]);
+  const names = solo ? [solo] : Object.keys(ctl.zones || {});
+  for (const n of names) acted.set(n, now);
+  // Le lisere doit s'eteindre meme si rien d'autre ne provoque de rendu.
+  setTimeout(() => { if (payload) render(); }, FLASH_MS + 50);
 }
 
 function renderActions() {

@@ -386,3 +386,25 @@ button.act-quiet { color: var(--ink); background: var(--card-2); border-color: v
    une rangee unique de six boutons ne dirait plus lequel agit sur quoi. */
 .act-kind + .act-kind { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--edge); }
 .act-kind h4 { margin: 0 0 .35rem; font-size: .74rem; font-weight: 620; color: var(--ink-dim); }
+
+/* Retour apres une action. La page ne peut PAS faire bouger la courbe : elle
+   vient du payload pousse toutes les 10 min. Elle accuse donc reception de ce
+   qui est vrai — la consigne est posee — et le dit jusqu'a ce que le releve
+   suive. */
+.zone.acted { animation: acted 1.6s ease-out; }
+@keyframes acted {
+  0%   { box-shadow: 0 0 0 0 rgba(22, 121, 74, .55); border-color: var(--ok); }
+  70%  { box-shadow: 0 0 0 10px rgba(22, 121, 74, 0); border-color: var(--ok); }
+  100% { box-shadow: 0 1px 2px rgba(22, 32, 46, .05); border-color: var(--edge); }
+}
+/* Respecter un reglage systeme « moins d'animations » : le liseré est un
+   confort, la pastille porte l'information — elle, reste. */
+@media (prefers-reduced-motion: reduce) { .zone.acted { animation: none; border-color: var(--ok); } }
+
+.pending {
+  margin: -.2rem 0 .6rem;
+  padding: .4rem .6rem;
+  font-size: .82rem; font-weight: 560;
+  color: var(--ok);
+  background: #e7f4ed; border: 1px solid #b9dfcb; border-radius: 8px;
+}
