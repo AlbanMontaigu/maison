@@ -55,8 +55,12 @@ const frames = new Map();
 // et l'etat des appareils viennent du payload pousse toutes les 10 min : ils ne
 // peuvent PAS bouger tout de suite, et les faire bouger serait afficher une
 // mesure inventee. Ce qu'on montre est donc autre chose -- « la consigne est
-// posee, le releve suivra » -- et ca s'efface tout seul quand le payload,
-// devenu plus recent que le clic, porte enfin la nouvelle.
+// posee » -- et ca s'efface tout seul quand le payload, devenu plus recent que
+// le clic, porte enfin la nouvelle.
+//
+// Le libelle est volontairement court : le POURQUOI la courbe ne bouge pas
+// encore est dans la reponse du moteur, affichee juste dessous dans le panneau,
+// et en `title` sur la pastille pour qui survole.
 const acted = new Map();
 const FLASH_MS = 1600;
 
@@ -703,7 +707,7 @@ function zoneCard(zone, f, t, marks, nowIdx) {
   const pending = at && new Date(payload.generated_at).getTime() < at;
   const flash = at && Date.now() - at < FLASH_MS;
   return `<section class="zone${open ? ' solo' : ''}${flash ? ' acted' : ''}" data-zone="${esc(zone.name)}">
-    ${pending ? `<div class="pending">✓ Consigne posée — le relevé suivra au prochain envoi</div>` : ''}
+    ${pending ? `<div class="pending" title="La courbe et l'état des appareils viennent de l'envoi de la maison, toutes les 10 min : ils ne bougeront qu'au suivant.">✓ Consigne posée</div>` : ''}
     <div class="zone-head">
       <div>
         <div class="zone-name">${open ? esc(zone.name)
