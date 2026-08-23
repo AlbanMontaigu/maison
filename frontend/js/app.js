@@ -1095,6 +1095,7 @@ function render() {
 
   if (v.empty) {
     $('zones').innerHTML = '<p class="empty">Pas encore de journée complète avant aujourd\'hui.</p>';
+    renderActions();
     $('help-body').innerHTML = helpHtml();
     $('foot-meta').textContent = '';
     return;
@@ -1107,6 +1108,8 @@ function render() {
       return zoneCard(z, f, t, marks, v.nowIdx);
     }).join('')
     : '<p class="empty">Aucune zone dans les données.</p>';
+
+  renderActions();
 
   $('help-body').innerHTML = helpHtml();
 
@@ -1461,6 +1464,210 @@ function bindTip() {
   window.addEventListener('scroll', hideCursor, { passive: true });
 }
 
+/* ── actions ─────────────────────────────────────────────────────────────── */
+
+/* The only part of this page that writes. It calls its own origin -- `api/...`
+ * -- and knows nothing of where the house is: nginx holds the address and the
+ * bearer. See the README.
+ *
+ * Three rules earned the hard way and worth keeping:
+ *
+ * 1. A 200 proves nothing. Point the proxy at the wrong upstream and the tailnet
+ *    answers 200 with somebody else's HTML. So every answer is checked for the
+ *    shape we expect, and anything else is a failure.
+ * 2. Unreachable means visibly disarmed, never a button that looks normal and
+ *    does nothing. The panel says so and draws no buttons at all.
+ * 3. Which rooms can be acted on comes from the API, not from a table written
+ *    here. This repository is public and holds no knowledge of the house; a
+ *    hard-coded "Chambre 1 -> clim1" would leak it AND freeze a mapping that
+ *    lives with the engine.
+ */
+
+// null = not probed yet. Otherwise {ok, directives, zones, text} or {error}.
+let ctl = null;
+let ctlBusy = false;
+// Last answer from the engine, shown verbatim: it is the only thing that knows
+// whether the directive was applied now or waits for the next tick.
+let ctlSaid = null;
+
+async function apiCall(path, opts) {
+  const res = await fetch(path, { cache: 'no-store', ...opts });
+  const body = await res.text();
+  let json = null;
+  try { json = JSON.parse(body); } catch { /* handled just below */ }
+  // Rule 1: shape, not status. `ok` is a boolean in every answer the comfort
+  // API gives, including its refusals.
+  if (!json || typeof json.ok !== 'boolean') {
+    throw new Error(res.ok ? 'réponse inattendue' : `HTTP ${res.status}`);
+  }
+  return json;
+}
+
+async function loadCtl() {
+  try {
+    ctl = await apiCall('api/state');
+  } catch (e) {
+    ctl = { error: e.message };
+  }
+}
+
+// « ce soir » expire a minuit, et le moteur peut alors relancer une clim entre
+// minuit et le passage du cron d'agenda a 05h07 -- c'est un trou constate, pas
+// une hypothese. On ne le cache pas derriere un libelle vague : la ligne le dit,
+// et « cette nuit » (jusqu'a demain) est propose juste a cote.
+const tomorrowKey = () => dayKey(Math.floor(Date.now() / 1000) + 86400);
+
+function climPanel(zoneName) {
+  const z = (ctl.zones || {})[zoneName];
+  if (!z) {
+    return `<p class="act-none">Aucune commande pour cette pièce : le moteur n'a
+      de consigne manuelle que pour les climatiseurs.</p>`;
+  }
+  const off = !!(ctl.directives || {})[z.key];
+  const absent = !!(ctl.directives || {}).absent;
+  const until = (ctl.directives || {}).until;
+
+  if (absent) {
+    return `<p class="act-none">La maison est déclarée vide : clims et ventilo
+      sont déjà coupés partout. La consigne de cette pièce reprendra la main au
+      retour.</p>`;
+  }
+  if (off) {
+    return `<p class="act-state">❄️ Clim coupée${until ? ` jusqu'au ${esc(frDate(until))} inclus` : ' pour aujourd\'hui'}.</p>
+      <div class="act-row">
+        <button type="button" class="act" data-cmd="${esc(z.verb)}" data-value="on">Réactiver la clim</button>
+      </div>`;
+  }
+  return `<p class="act-state">Clim pilotée normalement par le moteur.</p>
+    <div class="act-row">
+      <button type="button" class="act" data-cmd="${esc(z.verb)}" data-value="off">Couper ce soir</button>
+      <button type="button" class="act" data-cmd="${esc(z.verb)}" data-value="off" data-until="${tomorrowKey()}">Couper cette nuit</button>
+      <label class="act-date">jusqu'au
+        <input type="date" data-for="${esc(z.verb)}" min="${dayKey(Math.floor(Date.now() / 1000))}">
+      </label>
+    </div>
+    <p class="act-fine">« Ce soir » expire à minuit, et le moteur peut rallumer
+      entre minuit et 5 h du matin. Pour couvrir la nuit, choisir « cette
+      nuit ».</p>`;
+}
+
+function housePanel() {
+  const d = ctl.directives || {};
+  const rows = [];
+  rows.push(d.absent
+    ? `<p class="act-state">🚪 Maison déclarée vide${d.absent_reason ? ` (${esc(d.absent_reason)})` : ''}${d.until ? `, jusqu'au ${esc(frDate(d.until))} inclus` : ''}.</p>
+       <div class="act-row"><button type="button" class="act" data-cmd="absent" data-value="off">Nous sommes rentrés</button></div>`
+    : `<div class="act-row">
+         <button type="button" class="act" data-cmd="absent" data-value="on">Maison vide aujourd'hui</button>
+         <label class="act-date">vide jusqu'au
+           <input type="date" data-for="absent" min="${tomorrowKey()}">
+         </label>
+       </div>`);
+
+  if (d.at_creche === true) {
+    rows.push(`<p class="act-state">🏫 Théa à la crèche.</p>
+      <div class="act-row"><button type="button" class="act" data-cmd="sieste">Elle est à la maison</button></div>`);
+  } else if (d.at_creche === false) {
+    rows.push(`<p class="act-state">🏠 Théa à la maison (fenêtre sieste ouverte).</p>
+      <div class="act-row"><button type="button" class="act" data-cmd="creche" data-value="on">Elle est à la crèche</button></div>`);
+  } else {
+    rows.push(`<div class="act-row">
+      <button type="button" class="act" data-cmd="sieste">Théa est à la maison</button>
+      <button type="button" class="act" data-cmd="creche" data-value="on">Théa est à la crèche</button>
+    </div>`);
+  }
+
+  if ((d.manual || []).length) {
+    rows.push(`<div class="act-row"><button type="button" class="act act-quiet" data-cmd="reset">Annuler mes consignes du jour</button></div>`);
+  }
+  return rows.join('');
+}
+
+function actionsHtml() {
+  // Agir depuis une page qui parle d'hier n'a pas de sens : la fenetre est
+  // close, et le bouton porterait sur maintenant tout en etant lu dans le
+  // contexte d'avant.
+  if (isRetro()) return '';
+  if (!ctl) return `<section class="acts"><h3>Agir</h3><p class="act-none">Vérification des commandes…</p></section>`;
+
+  const solo = zoneFromHash();
+  let body;
+  if (ctl.error) {
+    body = `<p class="act-none act-ko">Commandes indisponibles (${esc(ctl.error)}).
+      La maison continue d'être pilotée normalement — c'est la main qui manque,
+      pas le moteur.</p>`;
+  } else if (ctl.zones == null) {
+    body = `<p class="act-none act-ko">Impossible de savoir quelles pièces
+      acceptent une consigne : aucun bouton n'est proposé plutôt que d'en
+      proposer au hasard.</p>`;
+  } else {
+    body = solo ? climPanel(solo) : housePanel();
+  }
+
+  return `<section class="acts" ${ctlBusy ? 'data-busy="1"' : ''}>
+    <h3>Agir${solo ? ` · ${esc(solo)}` : ' sur la maison'}</h3>
+    ${body}
+    ${ctlSaid ? `<p class="act-said ${ctlSaid.ok ? '' : 'act-ko'}">${esc(ctlSaid.text)}</p>` : ''}
+    ${ctlBusy ? '<p class="act-fine">envoi en cours…</p>' : ''}
+  </section>`;
+}
+
+async function sendDirective(body) {
+  if (ctlBusy) return;
+  ctlBusy = true; ctlSaid = null;
+  renderActions();
+  try {
+    const j = await apiCall('api/directive', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    // The engine's own sentence, verbatim. It is the only thing that knows
+    // whether this took effect now or waits for the next tick -- rewording it
+    // here would be inventing a certainty.
+    ctlSaid = { ok: j.ok, text: j.text || j.error || (j.ok ? 'appliqué' : 'refusé') };
+  } catch (e) {
+    ctlSaid = { ok: false, text: `Commande non transmise (${e.message}). Rien n'a changé dans la maison.` };
+  }
+  ctlBusy = false;
+  await loadCtl();
+  renderActions();
+  // The curves come from the pushed payload, not from this call: they will
+  // catch up at the next export. Refreshing now costs nothing and shows the
+  // new directive as soon as it lands.
+  load();
+}
+
+function renderActions() {
+  // Deliberately NOT gated on the payload. The panel needs none of it (parts()
+  // already falls back to Europe/Paris), and hiding the buttons when the push
+  // is broken would remove the hand exactly when the automatic path is the one
+  // in doubt.
+  const el = $('actions');
+  if (el) el.innerHTML = actionsHtml();
+}
+
+function bindActions() {
+  $('actions').addEventListener('click', (ev) => {
+    const b = ev.target.closest('button.act');
+    if (!b) return;
+    const body = { cmd: b.dataset.cmd };
+    if (b.dataset.value) body.value = b.dataset.value;
+    if (b.dataset.until) body.until = b.dataset.until;
+    sendDirective(body);
+  });
+  // A date is a command as soon as it is picked: asking for a second click on a
+  // "valider" button next to it would be a step with nothing to decide.
+  $('actions').addEventListener('change', (ev) => {
+    const i = ev.target.closest('input[type=date]');
+    if (!i || !i.value) return;
+    const cmd = i.dataset.for;
+    sendDirective(cmd === 'absent'
+      ? { cmd: 'absent', value: 'on', until: i.value }
+      : { cmd, value: 'off', until: i.value });
+  });
+}
+
 /* ── load loop ───────────────────────────────────────────────────────────── */
 
 async function load() {
@@ -1492,6 +1699,11 @@ fetch('build.txt').then((r) => r.ok ? r.text() : '').then((v) => {
 bindView();
 bindRoute();
 bindTip();
+bindActions();
+// Probed once at boot and re-read after every command. Not on the refresh
+// timer: the directives change when someone changes them, and polling the
+// house's control plane every minute to redraw two buttons would be noise.
+loadCtl().then(renderActions);
 load();
 setInterval(load, REFRESH_MS);
 // Coming back to a backgrounded tab must show now, not the last poll.

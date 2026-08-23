@@ -317,3 +317,62 @@ body {
 .tip .dim { color: var(--ink-dim); }
 
 .empty { color: var(--ink-dim); padding: 2rem .25rem; text-align: center; }
+
+/* ── Agir ──────────────────────────────────────────────────────────────────
+   Le seul bloc de la page qui ECRIT. Il est volontairement sobre et pose sous
+   les cartes : c'est un tableau de bord qu'on lit, avec quelques leviers, pas
+   une telecommande. Les boutons sont dimensionnes au pouce (44 px de haut),
+   parce que cette page se lit sur un telephone. */
+.acts {
+  max-width: 62rem;
+  margin: 1rem auto 0;
+  padding: .85rem 1rem 1rem;
+  background: var(--card);
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+}
+.acts h3 { margin: 0 0 .5rem; font-size: .8rem; font-weight: 620; color: var(--ink-dim); }
+.acts[data-busy] { opacity: .6; pointer-events: none; }
+
+.act-state { margin: 0 0 .6rem; font-size: .95rem; font-weight: 560; }
+.act-none { margin: 0; font-size: .88rem; color: var(--ink-dim); }
+/* Une commande indisponible doit se VOIR. Le meme gris que le texte courant
+   laisserait lire un panneau normal. */
+.act-ko { color: var(--alert); font-weight: 560; }
+
+.act-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.acts + .acts, .act-row + .act-state { margin-top: .8rem; }
+
+button.act {
+  min-height: 44px;
+  padding: .55rem .9rem;
+  font: inherit;
+  font-weight: 560;
+  color: #fff;
+  background: var(--cool);
+  border: 1px solid transparent;
+  border-radius: 9px;
+  cursor: pointer;
+}
+button.act:hover { filter: brightness(1.08); }
+button.act:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* « Annuler mes consignes » efface le travail de la journee : il ne doit pas
+   avoir le meme poids visuel qu'une consigne ordinaire. */
+button.act-quiet { color: var(--ink); background: var(--card-2); border-color: var(--line); }
+
+.act-date {
+  display: inline-flex; align-items: center; gap: .4rem;
+  min-height: 44px; padding: 0 .6rem;
+  font-size: .85rem; color: var(--ink-dim);
+  background: var(--card-2); border: 1px solid var(--line); border-radius: 9px;
+}
+.act-date input { font: inherit; color: var(--ink); background: none; border: 0; }
+
+/* La phrase renvoyee par le moteur, telle quelle. Elle est la seule a savoir si
+   la consigne a pris effet tout de suite ou attend le prochain tick. */
+.act-said {
+  margin: .7rem 0 0; padding: .55rem .7rem;
+  font-size: .9rem; white-space: pre-wrap;
+  background: var(--card-2); border-radius: 8px;
+}
+.act-fine { margin: .5rem 0 0; font-size: .76rem; color: var(--ink-dim); }
