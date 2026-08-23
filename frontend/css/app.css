@@ -86,22 +86,46 @@ body {
 .erow { display: flex; flex-wrap: wrap; align-items: baseline; gap: .55rem 1.1rem; }
 .energy .etitle { font-size: .88rem; font-weight: 660; }
 /* Courbe du coût : niveau maison, donc pleine largeur du bloc. */
-.ecurve { position: relative; margin-top: .6rem; }
+.ecurve { margin-top: .6rem; }
+/* Le contexte de positionnement est le TRACE, pas le bloc : les etiquettes
+   d'ordonnee et le curseur se placent en % de la hauteur du dessin, et l'axe
+   des temps vit dessous, hors de ce repere. */
+.eplot { position: relative; }
 .ecurve svg { width: 100%; height: 62px; display: block; }
-.ecurve .ehi, .ecurve .espan {
-  position: absolute; font-size: .64rem; color: var(--ink-dim);
-  background: var(--card); padding: 0 3px; border-radius: 3px;
+
+/* Ordonnee : chiffres en HTML par-dessus le SVG (celui-ci est etire, un <text>
+   y serait comprime). Meme technique que les courbes de piece. */
+.ecurve .ylab { position: absolute; inset: 0; pointer-events: none; }
+.ecurve .ylab span {
+  position: absolute; left: 0; transform: translateY(-50%);
+  font-size: .62rem; color: var(--ink-dim);
+  background: var(--card); padding: 0 .2rem; border-radius: 3px;
 }
-.ecurve .ehi { top: 0; left: 0; }
-/* La temperature exterieure partage le dessin mais pas l'echelle : son etendue
-   est ecrite a cote de la courbe, sinon deux unites superposees se lisent comme
-   une seule et font croire a une correlation qu'on n'a pas mesuree. */
-.ecurve .etemp {
-  position: absolute; top: 0; right: 0;
-  font-size: .68rem; color: var(--ink-dim); background: var(--card);
-  padding: 0 .2rem; border-radius: 3px;
+/* Une graduation peut tomber sur le bord du trace ; centree, la moitie de
+   l'etiquette deborderait au-dessus du dessin. */
+.ecurve .ylab span.edge-top { transform: none; }
+
+.ecurve .eaxis {
+  position: relative; height: 1.05rem; margin-top: .1rem;
+  font-size: .62rem; color: var(--ink-dim);
 }
-.ecurve .espan { bottom: 0; right: 0; }
+.ecurve .eaxis span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+
+/* Curseur de lecture : un trait, pas une zone. Il doit dire OU on lit sans
+   masquer ce qu'on lit. */
+.ecurve .ecur {
+  position: absolute; top: 0; bottom: 0; width: 1px;
+  background: var(--ink-dim); opacity: .55; pointer-events: none;
+}
+/* Legende sous l'axe. « pointe » et l'etendue du dehors etaient posees en haut
+   du trace, ou elles heurtaient desormais la graduation d'ordonnee -- et la
+   temperature partage le dessin mais PAS l'echelle : son etendue doit rester
+   ecrite a part, sinon deux unites superposees se lisent comme une seule et
+   font croire a une correlation qu'on n'a pas mesuree. */
+.ecurve .eleg {
+  margin-top: .1rem; text-align: right;
+  font-size: .66rem; color: var(--ink-dim);
+}
 .ecurve.empty {
   font-size: .76rem; color: var(--ink-dim);
   border-top: 1px dashed var(--edge); padding-top: .5rem;

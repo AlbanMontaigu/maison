@@ -192,7 +192,12 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 // et l'echelle doit se lire sans effort ou elle ne sert a rien.
 function niceTicks(lo, hi) {
   const raw = (hi - lo) / 3;
-  const step = [0.5, 1, 2, 2.5, 5, 10].find((v) => v >= raw) || 10;
+  // Les trois plus petits pas servent a la courbe electrique, ou l'ordonnee se
+  // compte en dixiemes d'euro : avec 0,5 pour plancher, une pointe a 0,65 €/h
+  // n'avait qu'UNE graduation. Ils ne changent rien aux courbes de temperature,
+  // qui ne les atteignent que sur une amplitude inferieure a 1,5 °C -- et la,
+  // deux graduations valent mieux qu'une.
+  const step = [0.1, 0.2, 0.25, 0.5, 1, 2, 2.5, 5, 10].find((v) => v >= raw) || 10;
   const out = [];
   for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) {
     out.push(Number(v.toFixed(2)));
@@ -790,7 +795,35 @@ const kwh = (v) => v.toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' k
 //
 // Consequence a ne pas cacher : Enedis publie en differe. La journee EN COURS
 // n'a donc pas de courbe, et c'est un fait a annoncer, pas un vide a masquer.
+// Ce que la bulle relit au survol. Pose par energyCurve, comme `frames` pour
+// les cartes de zone : le curseur ne recalcule rien, il lit ce qui est DESSINE.
+let ecurve = null;
+
+// Graduations de temps de la courbe electrique. Elles ne peuvent pas venir de
+// `viewMarks` : celui-ci travaille sur l'axe des ticks du moteur (10 min), alors
+// que la courbe de charge a son propre pas (30 min) et sa propre etendue.
+function energyMarks(t0, t1) {
+  const span = t1 - t0;
+  const out = [];
+  if (span <= 36 * 3600) {
+    const step = 3 * 3600;
+    for (let ts = Math.ceil(t0 / step) * step; ts <= t1; ts += step) {
+      out.push([(ts - t0) / span, hhmm(ts)]);
+    }
+  } else {
+    let last = null;
+    for (let ts = t0; ts <= t1; ts += 3600) {
+      const k = dayKey(ts);
+      if (k === last) continue;
+      last = k;
+      out.push([(ts - t0) / span, dayLabel(ts)]);
+    }
+  }
+  return out;
+}
+
 function energyCurve(e) {
+  ecurve = null;
   const pts = (e.series || []).filter((p) => Array.isArray(p) && p.length === 2);
   const from = view !== 'week' && viewT.length ? dayKey(viewT[viewT.length - 1]) : null;
   const use = from ? pts.filter((p) => dayKey(p[0]) === from) : pts;
@@ -803,13 +836,12 @@ function energyCurve(e) {
 
   // En euros par heure. C'est la MEME courbe que les kW a un facteur pres (le
   // tarif) : la forme ne change pas, seule l'unite parle. Sans tarif lisible on
-  // retombe sur les kW plutot que d'inventer un cout -- meme regle que le reste
-  // du bloc.
+  // retombe sur les kW plutot que d'inventer un cout.
   const tarif = e.tarif_kwh_eur;
   const unit = tarif ? (v) => v * tarif : (v) => v;
-  const fmt = tarif
-    ? (v) => v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €/h'
-    : (v) => v.toLocaleString('fr-FR', { maximumFractionDigits: 2 }) + ' kW';
+  const U = tarif ? ' €/h' : ' kW';
+  const fmt = (v) => v.toLocaleString('fr-FR',
+    tarif ? { minimumFractionDigits: 2, maximumFractionDigits: 2 } : { maximumFractionDigits: 2 }) + U;
 
   const W = 1000, H = 60;
   const t0 = use[0][0], t1 = use[use.length - 1][0];
@@ -825,46 +857,69 @@ function energyCurve(e) {
   });
   area += `L${W},${H}Z`;
 
-  // Temperature exterieure REELLE, sur la meme abscisse. Elle est prise dans le
-  // payload par son horodatage, pas par son index : les deux series n'ont ni le
-  // meme pas (10 min contre 30) ni la meme etendue, et les aligner par rang
-  // ferait glisser la temperature de plusieurs heures.
-  //
-  // Deux unites sur un meme dessin peuvent faire lire une correlation qui
-  // n'existe pas. Chaque echelle est donc NOMMEE, et la temperature est en
-  // pointilles dans la couleur « dehors » deja utilisee par les courbes de
-  // pieces -- elle se lit comme un repere, pas comme une seconde mesure de cout.
+  // Ordonnee : traits dans le SVG, chiffres en HTML par-dessus. Meme raison que
+  // sur les courbes de piece -- le SVG est etire (preserveAspectRatio none) et
+  // un <text> y serait comprime.
+  const ticks = niceTicks(0, hi).filter((v) => v > 0 && v <= hi);
+  let grid = '', yLabels = '';
+  ticks.forEach((v, k) => {
+    grid += `<line x1="0" y1="${y(v).toFixed(1)}" x2="${W}" y2="${y(v).toFixed(1)}"`
+      + ` stroke="var(--line)" stroke-width="1" stroke-dasharray="2 4" opacity=".8"`
+      + ` vector-effect="non-scaling-stroke"/>`;
+    const pct = (y(v) / H) * 100;
+    // L'unite une seule fois, sur la graduation du haut : la repeter n'apprend
+    // rien sur une bande de 62 px.
+    yLabels += `<span class="${pct < 10 ? 'edge-top' : ''}" style="top:${pct.toFixed(2)}%">`
+      + `${v.toLocaleString('fr-FR')}${k === ticks.length - 1 ? U : ''}</span>`;
+  });
+
+  // Temperature exterieure REELLE, sur la meme abscisse. Prise par HORODATAGE
+  // et pas par index : les deux series n'ont ni le meme pas (10 min contre 30)
+  // ni la meme etendue, et les aligner par rang ferait glisser la temperature
+  // de plusieurs heures.
   const oT = [];
   const ts = payload.t || [], oa = (payload.outdoor || {}).T || [];
   for (let i = 0; i < ts.length; i++) {
     if (oa[i] == null || ts[i] < t0 || ts[i] > t1) continue;
     oT.push([ts[i], oa[i]]);
   }
-  let temp = '', tempLbl = '';
+  let temp = '', tempLbl = '', yT = null;
   if (oT.length >= 2) {
     const lo = Math.min(...oT.map((q) => q[1])), hiT = Math.max(...oT.map((q) => q[1]));
-    // Bande de 6 °C au minimum : sur une nuit calme, l'ecart reel peut etre de
-    // 0,3 °C et une echelle collee au min/max transformerait ce souffle en
+    // Bande de 6 °C au minimum : sur une nuit calme l'ecart reel peut etre de
+    // 0,3 °C, et une echelle collee au min/max transformerait ce souffle en
     // montagnes russes.
     const span = Math.max(6, hiT - lo);
     const mid = (lo + hiT) / 2;
-    const yT = (v) => H - ((v - (mid - span / 2)) / span) * H;
+    yT = (v) => H - ((v - (mid - span / 2)) / span) * H;
     temp = '<path d="' + oT.map((q, k) =>
       (k ? 'L' : 'M') + `${x(q[0]).toFixed(1)},${yT(q[1]).toFixed(1)}`).join('')
       + '" fill="none" stroke="var(--neutral)" stroke-width="1.4" stroke-dasharray="4 3"'
       + ' vector-effect="non-scaling-stroke"/>';
-    tempLbl = `<span class="etemp">dehors ${lo.toFixed(1)}–${hiT.toFixed(1)}°</span>`;
+    // La temperature partage le dessin mais PAS l'echelle : son etendue est
+    // ecrite a part, sinon deux unites superposees se lisent comme une seule.
+    const deg = (v) => v.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    tempLbl = `dehors ${deg(lo)}–${deg(hiT)}°`;
   }
 
+  ecurve = { use, oT, t0, t1, unit, fmt };
+
+  const axis = energyMarks(t0, t1)
+    .map(([pos, l]) => `<span style="left:${(pos * 100).toFixed(2)}%">${esc(l)}</span>`).join('');
+
   return `<div class="ecurve">
-      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
-        <path d="${area}" fill="var(--sun-fill)"/>
-        <path d="${d}" fill="none" stroke="var(--sun)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
-        ${temp}
-      </svg>
-      <span class="ehi">pointe ${esc(fmt(hi))}</span>
-      ${tempLbl}
-      <span class="espan">${esc(stamp(t0, t1))} → ${esc(stamp(t1, t1))}</span>
+      <div class="eplot">
+        <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+          ${grid}
+          <path d="${area}" fill="var(--sun-fill)"/>
+          <path d="${d}" fill="none" stroke="var(--sun)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+          ${temp}
+        </svg>
+        <div class="ylab">${yLabels}</div>
+        <div class="ecur" hidden></div>
+      </div>
+      <div class="eaxis">${axis}</div>
+      <div class="eleg">pointe ${esc(fmt(hi))}${tempLbl ? ` · ${esc(tempLbl)}` : ''}</div>
     </div>`;
 }
 
@@ -1519,6 +1574,59 @@ function placeCursor(card, svg, i, n) {
   shownCursor = cur;
 }
 
+// Curseur de lecture sur la courbe electrique. Handler a part de celui des
+// cartes : le bloc vit dans #banners, hors de #zones, et surtout ses deux series
+// ont chacune leur pas -- on cherche donc le point le plus proche EN TEMPS, pas
+// a l'index. Chercher a l'index aurait fait afficher une temperature d'une autre
+// heure sous le curseur.
+function nearest(list, ts) {
+  if (!list || !list.length) return null;
+  let best = null, bd = Infinity;
+  for (const q of list) {
+    const dd = Math.abs(q[0] - ts);
+    if (dd < bd) { bd = dd; best = q; }
+  }
+  return best;
+}
+
+function bindEnergyTip() {
+  const tip = $('tip');
+  const host = $('banners');
+  host.addEventListener('pointermove', (ev) => {
+    const plot = ev.target.closest('.eplot');
+    if (!plot || !ecurve) { tip.hidden = true; return; }
+    const r = plot.getBoundingClientRect();
+    const f = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
+    const ts = ecurve.t0 + f * (ecurve.t1 - ecurve.t0);
+
+    const c = nearest(ecurve.use, ts);
+    const o = nearest(ecurve.oT, ts);
+    // La temperature n'est montree que si elle est PROCHE dans le temps : au
+    // bord d'une fenetre, le point le plus proche peut etre a des heures, et
+    // l'afficher sous le curseur en ferait une mesure de cet instant.
+    const oOk = o && Math.abs(o[0] - ts) <= 1800;
+    tip.innerHTML = `<b>${dayLabel(c[0])} ${hhmm(c[0])}</b><br>`
+      + `électricité : <b>${esc(ecurve.fmt(ecurve.unit(c[1])))}</b>`
+      + (oOk ? `<br>dehors : <b>${o[1].toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}°</b>` : '')
+      + (o && !oOk ? '<br><span class="dim">pas de mesure du dehors ici</span>' : '');
+    tip.hidden = false;
+
+    const cur = plot.querySelector('.ecur');
+    if (cur) {
+      cur.style.left = `${((c[0] - ecurve.t0) / (ecurve.t1 - ecurve.t0) * 100).toFixed(2)}%`;
+      cur.hidden = false;
+    }
+    const w = tip.offsetWidth;
+    tip.style.left = Math.min(window.innerWidth - w - 8, Math.max(8, ev.clientX - w / 2)) + 'px';
+    tip.style.top = (r.top - tip.offsetHeight - 8 < 8 ? r.bottom + 8 : r.top - tip.offsetHeight - 8) + 'px';
+  });
+  host.addEventListener('pointerleave', () => {
+    tip.hidden = true;
+    const cur = host.querySelector('.ecur');
+    if (cur) cur.hidden = true;
+  });
+}
+
 function bindTip() {
   const tip = $('tip');
   $('zones').addEventListener('pointermove', (ev) => {
@@ -1904,6 +2012,7 @@ fetch('build.txt').then((r) => r.ok ? r.text() : '').then((v) => {
 bindView();
 bindRoute();
 bindTip();
+bindEnergyTip();
 bindActions();
 // Probed once at boot and re-read after every command. Not on the refresh
 // timer: the directives change when someone changes them, and polling the
