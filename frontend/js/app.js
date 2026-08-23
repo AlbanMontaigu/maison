@@ -779,42 +779,47 @@ const frDate = (iso) => {
 const eur = (v) => v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 const kwh = (v) => v.toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' kWh';
 
-// Courbe du cout, en euros. La serie porte `conso_jour_kwh`, un cumul qui
-// repart de zero a minuit : sur la journee elle monte, sur la semaine elle
-// dessine une dent de scie dont chaque pic est le total d'un jour. C'est la
-// meme donnee qui repond aux deux questions, sans rien recalculer.
+// Courbe de charge : la puissance appelee, une valeur par demi-heure.
 //
-// Le kWh est stocke et l'euro calcule a l'affichage : un historique en euros
-// figerait l'ancien tarif dans le passe le jour ou le contrat change.
+// L'ancienne courbe tracait `conso_jour_kwh`, presente comme « un cumul qui
+// repart de zero a minuit ». C'etait faux : ce compteur ne prend que DEUX
+// valeurs par jour (mesure le 23/08/2026 sur 122 releves), et il est publie
+// avec un jour ou deux de retard. La courbe etait donc plate et ne montrait
+// rien. La vraie courbe vient de l'historique Jeedom de « Consommation
+// Horaire » -- 48 points par jour, sur des semaines.
+//
+// Consequence a ne pas cacher : Enedis publie en differe. La journee EN COURS
+// n'a donc pas de courbe, et c'est un fait a annoncer, pas un vide a masquer.
 function energyCurve(e) {
-  const tarif = e.tarif_kwh_eur;
   const pts = (e.series || []).filter((p) => Array.isArray(p) && p.length === 2);
-  // La courbe suit la fenetre : un jour precis, ou toute la serie sur 7 j.
   const from = view !== 'week' && viewT.length ? dayKey(viewT[viewT.length - 1]) : null;
   const use = from ? pts.filter((p) => dayKey(p[0]) === from) : pts;
-  // Deux points font un segment ; un seul ne fait rien. Le dire plutot que
-  // dessiner un trait plat qu'on lirait comme « conso nulle ».
-  if (use.length < 2 || !tarif) {
-    return `<div class="ecurve empty">la courbe se remplit au fil des relevés</div>`;
+
+  if (use.length < 2) {
+    return `<div class="ecurve empty">${view === 'day'
+      ? "la courbe du jour arrive demain — Enedis publie la consommation en différé"
+      : 'pas encore assez de relevés pour tracer la courbe'}</div>`;
   }
+
   const W = 1000, H = 46;
   const t0 = use[0][0], t1 = use[use.length - 1][0];
-  const hi = Math.max(...use.map((p) => p[1])) * tarif || 1;
+  const hi = Math.max(...use.map((p) => p[1])) || 1;
   const x = (ts) => (t1 === t0 ? W : ((ts - t0) / (t1 - t0)) * W);
   const y = (v) => H - (v / hi) * H;
   let d = '', area = `M0,${H}L`;
   use.forEach((p, k) => {
-    const pt = `${x(p[0]).toFixed(1)},${y(p[1] * tarif).toFixed(1)}`;
+    const pt = `${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`;
     d += (k ? 'L' : 'M') + pt;
     area += (k ? 'L' : '') + pt;
   });
   area += `L${W},${H}Z`;
+  const kw = (v) => v.toLocaleString('fr-FR', { maximumFractionDigits: 2 }) + ' kW';
   return `<div class="ecurve">
       <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
         <path d="${area}" fill="var(--sun-fill)"/>
         <path d="${d}" fill="none" stroke="var(--sun)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
       </svg>
-      <span class="ehi">${eur(hi)}</span>
+      <span class="ehi">pointe ${esc(kw(hi))}</span>
       <span class="espan">${esc(stamp(t0, t1))} → ${esc(stamp(t1, t1))}</span>
     </div>`;
 }
@@ -824,21 +829,28 @@ function energyHtml(e) {
     return `<div class="energy off"><b>Électricité</b>`
       + `<span class="esub">consommation indisponible — le compteur n'a pas répondu</span></div>`;
   }
-  // Un instantane vieux se dit vieux. Le seuil est large : le collecteur passe
-  // toutes les 10 min, une heure de retard est une panne, pas un retard.
   const old = e.age_s != null && e.age_s > 3600;
   const cell = (label, b) => b && b.kwh != null
     ? `<span class="e"><i>${label}</i>${b.eur != null ? `<b>${eur(b.eur)}</b>` : ''}`
       + `<em>${kwh(b.kwh)}</em></span>`
     : '';
-  const now = e.now_kw != null
-    ? `<span class="e"><i>en ce moment</i><b>${e.now_kw.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} kW</b>`
-      + `${e.now_eur_h != null ? `<em>${eur(e.now_eur_h)} par heure</em>` : ''}</span>`
+
+  // Le dernier jour COMPLET, avec sa date, calcule sur la courbe. On n'affiche
+  // plus « aujourd'hui » a partir du compteur « Consommation Jour » : recoupe le
+  // 23/08, sa valeur etait celle d'un jour passe (43,646 = le total du 20/08),
+  // donc la page datait de maintenant un chiffre d'avant-hier.
+  const days = e.days || [];
+  const last = days.length ? days[days.length - 1] : null;
+  const dayCell = last
+    ? `<span class="e"><i>${esc(frDate(last[0]))}</i>`
+      + `${e.tarif_kwh_eur ? `<b>${eur(last[1] * e.tarif_kwh_eur)}</b>` : ''}`
+      + `<em>${kwh(last[1])}</em></span>`
     : '';
+
   return `<div class="energy${old ? ' stale' : ''}">
       <div class="erow">
         <b class="etitle">Électricité</b>
-        ${cell("aujourd'hui", e.jour)}${cell('ce mois', e.mois)}${cell('cette année', e.annee)}${now}
+        ${dayCell}${cell('ce mois', e.mois)}${cell('cette année', e.annee)}
       </div>
       ${energyCurve(e)}
       ${old ? `<span class="esub">relevé vieux de ${ago(e.generated_at, Date.now())}</span>` : ''}
@@ -1117,7 +1129,11 @@ function render() {
     + (iS >= 0 ? ` · ${solarWord(oS[iS])}` : '');
   outEl.title = iS >= 0 ? `rayonnement du ciel ${Math.round(oS[iS])} W/m² (fort au-delà de ${SOLAR_HIGH})` : '';
 
-  $('banners').innerHTML = energyHtml(payload.energy) + bannerHtml(payload.house);
+  // L'electricite est un compteur de MAISON : sur la page d'une piece elle
+  // repond a une autre question que celle qu'on est venu poser, et sa presence
+  // laisse croire qu'elle parle de cette piece-la.
+  $('banners').innerHTML = (zoneFromHash() ? '' : energyHtml(payload.energy))
+    + bannerHtml(payload.house);
 
   // Une piece ouverte : on ne rend qu'elle. Un nom inconnu (zone renommee,
   // lien vieilli) retombe sur la vue d'ensemble plutot que sur une page vide.
