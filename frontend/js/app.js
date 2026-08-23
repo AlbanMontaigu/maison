@@ -822,6 +822,63 @@ function energyMarks(t0, t1) {
   return out;
 }
 
+// Plages de fonctionnement de chaque appareil CONSOMMATEUR, sous la courbe.
+// Les volets en sont exclus : ils ne consomment rien, et leur place ici
+// laisserait croire qu'ils pesent sur le trait du dessus.
+//
+// Les series du moteur sont a un autre pas (10 min) et sur une autre etendue
+// que la courbe de charge (30 min) : chaque segment est donc place par son
+// HORODATAGE, jamais par son rang. Un appareil qui n'a pas tourne du tout sur
+// la fenetre n'a pas de piste -- une ligne vide se lit comme une panne.
+const DEVICE_KINDS = [['ac', 'clim', 'var(--cool)'], ['fan', 'ventilo', 'var(--fan)']];
+
+function energyDevices(t0, t1) {
+  const ts = payload.t || [];
+  const span = t1 - t0 || 1;
+  // Duree d'un tick, pour donner sa largeur au dernier segment : sans elle, une
+  // marche encore en cours au dernier releve serait dessinee comme un trait.
+  const step = ts.length > 1 ? (ts[1] - ts[0]) : 600;
+  const rows = [];
+
+  for (const z of payload.zones || []) {
+    for (const [kind, label, color] of DEVICE_KINDS) {
+      // `ac` et `fan` sont RUN-LENGTH ENCODES dans le payload (44 paires pour
+      // 1015 ticks) : les indexer directement ne trouve jamais rien, et une
+      // piste absente se lit « cet appareil n'a pas tourne ». Il faut expand().
+      const raw = (z.series || {})[kind];
+      if (!raw || !raw.length) continue;
+      const ser = expand(raw, ts.length);
+      let rects = '', any = false;
+      let runFrom = null;
+      for (let i = 0; i < ts.length; i++) {
+        const inWin = ts[i] >= t0 && ts[i] <= t1;
+        const on = inWin && !!ser[i];
+        if (on && runFrom === null) runFrom = ts[i];
+        if (!on && runFrom !== null) {
+          const x0 = ((runFrom - t0) / span) * 1000;
+          const x1 = ((Math.min(ts[i], t1) - t0) / span) * 1000;
+          rects += `<rect x="${x0.toFixed(1)}" y="0" width="${Math.max(1, x1 - x0).toFixed(1)}" height="10" fill="${color}"/>`;
+          any = true;
+          runFrom = null;
+        }
+      }
+      if (runFrom !== null) {
+        const x0 = ((runFrom - t0) / span) * 1000;
+        const x1 = ((Math.min(ts[ts.length - 1] + step, t1) - t0) / span) * 1000;
+        rects += `<rect x="${x0.toFixed(1)}" y="0" width="${Math.max(1, x1 - x0).toFixed(1)}" height="10" fill="${color}"/>`;
+        any = true;
+      }
+      if (!any) continue;
+      const name = `${label} ${z.name}`;
+      rows.push(`<div class="erow2">
+        <span class="elab" title="${esc(name)}">${esc(name)}</span>
+        <div class="estrip"><svg viewBox="0 0 1000 10" preserveAspectRatio="none" aria-hidden="true">${rects}</svg></div>
+      </div>`);
+    }
+  }
+  return rows.join('');
+}
+
 function energyCurve(e) {
   ecurve = null;
   const pts = (e.series || []).filter((p) => Array.isArray(p) && p.length === 2);
@@ -908,17 +965,21 @@ function energyCurve(e) {
     .map(([pos, l]) => `<span style="left:${(pos * 100).toFixed(2)}%">${esc(l)}</span>`).join('');
 
   return `<div class="ecurve">
-      <div class="eplot">
-        <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
-          ${grid}
-          <path d="${area}" fill="var(--sun-fill)"/>
-          <path d="${d}" fill="none" stroke="var(--sun)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
-          ${temp}
-        </svg>
-        <div class="ylab">${yLabels}</div>
-        <div class="ecur" hidden></div>
+      <div class="erow2">
+        <span class="elab"></span>
+        <div class="eplot">
+          <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+            ${grid}
+            <path d="${area}" fill="var(--sun-fill)"/>
+            <path d="${d}" fill="none" stroke="var(--sun)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+            ${temp}
+          </svg>
+          <div class="ylab">${yLabels}</div>
+          <div class="ecur" hidden></div>
+        </div>
       </div>
-      <div class="eaxis">${axis}</div>
+      ${energyDevices(t0, t1)}
+      <div class="erow2"><span class="elab"></span><div class="eaxis">${axis}</div></div>
       <div class="eleg">pointe ${esc(fmt(hi))}${tempLbl ? ` · ${esc(tempLbl)}` : ''}</div>
     </div>`;
 }
