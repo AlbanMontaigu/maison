@@ -548,6 +548,12 @@ function directiveLabel(txt) {
   const raw = String(txt || '');
   const abs = /^directive absent(?:\s*\((.*)\))?\s*$/.exec(raw);
   if (abs) return `absence déclarée${abs[1] ? ` (${esc(abs[1])})` : ''}`;
+  // Les motifs du moteur ont deux formes : un CODE prefixe (« directive
+  // clim2_off »), et une PHRASE deja lisible (« consigne manuelle : ventilo
+  // coupé »). Ranger la seconde dans le repli « consigne de l'agenda : … »
+  // donnait « consigne de l'agenda : consigne manuelle : ventilo coupé » —
+  // illisible, et faux : elle ne vient pas de l'agenda.
+  if (!/^directive\s/.test(raw)) return esc(raw);
   const key = raw.replace(/^directive\s+/, '');
   return DIRECTIVE_TARGETS[key]
     ? `consigne : ${DIRECTIVE_TARGETS[key]}`
@@ -1665,34 +1671,43 @@ function zonePanel(zoneName) {
 
 function housePanel() {
   const d = ctl.directives || {};
-  const rows = [];
-  rows.push(d.absent
+  // Trois sujets sans rapport entre eux -- l'absence, Thea, l'annulation --
+  // etaient empiles sans rien qui les separe : les boutons se touchaient et on
+  // ne voyait plus lequel repondait a quoi. Meme decoupage en blocs titres que
+  // sur la page d'une piece, ou il marche deja.
+  const block = (title, body) => `<div class="act-kind"><h4>${title}</h4>${body}</div>`;
+  const out = [];
+
+  out.push(block('Absence', d.absent
     ? `<p class="act-state">🚪 Maison déclarée vide${d.absent_reason ? ` (${esc(d.absent_reason)})` : ''}${d.until ? `, jusqu'au ${esc(frDate(d.until))} inclus` : ''}.</p>
        <div class="act-row"><button type="button" class="act" data-cmd="absent" data-value="off">Nous sommes rentrés</button></div>`
     : `<div class="act-row">
-         <button type="button" class="act" data-cmd="absent" data-value="on">Maison vide aujourd'hui</button>
+         <button type="button" class="act" data-cmd="absent" data-value="on">Vide aujourd'hui</button>
+       </div>
+       <div class="act-row">
          <label class="act-date">vide jusqu'au
            <input type="date" data-for="absent" min="${tomorrowKey()}">
          </label>
-       </div>`);
+       </div>`));
 
-  if (d.at_creche === true) {
-    rows.push(`<p class="act-state">🏫 Théa à la crèche.</p>
-      <div class="act-row"><button type="button" class="act" data-cmd="sieste">Elle est à la maison</button></div>`);
-  } else if (d.at_creche === false) {
-    rows.push(`<p class="act-state">🏠 Théa à la maison (fenêtre sieste ouverte).</p>
-      <div class="act-row"><button type="button" class="act" data-cmd="creche" data-value="on">Elle est à la crèche</button></div>`);
-  } else {
-    rows.push(`<div class="act-row">
-      <button type="button" class="act" data-cmd="sieste">Théa est à la maison</button>
-      <button type="button" class="act" data-cmd="creche" data-value="on">Théa est à la crèche</button>
-    </div>`);
-  }
+  out.push(block('Théa', d.at_creche === true
+    ? `<p class="act-state">🏫 À la crèche.</p>
+       <div class="act-row"><button type="button" class="act" data-cmd="sieste">Elle est à la maison</button></div>`
+    : d.at_creche === false
+      ? `<p class="act-state">🏠 À la maison (fenêtre sieste ouverte).</p>
+         <div class="act-row"><button type="button" class="act" data-cmd="creche" data-value="on">Elle est à la crèche</button></div>`
+      : `<div class="act-row">
+           <button type="button" class="act" data-cmd="sieste">À la maison</button>
+           <button type="button" class="act" data-cmd="creche" data-value="on">À la crèche</button>
+         </div>`));
 
+  // N'apparait que s'il y a quelque chose a annuler : un bouton qui n'efface
+  // rien inviterait a le presser pour verifier.
   if ((d.manual || []).length) {
-    rows.push(`<div class="act-row"><button type="button" class="act act-quiet" data-cmd="reset">Annuler mes consignes du jour</button></div>`);
+    out.push(block('Mes consignes du jour',
+      `<div class="act-row"><button type="button" class="act act-quiet" data-cmd="reset">Tout annuler</button></div>`));
   }
-  return rows.join('');
+  return out.join('');
 }
 
 function actionsHtml() {

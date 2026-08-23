@@ -420,3 +420,9 @@ button.act-quiet { color: var(--ink); background: var(--card-2); border-color: v
 }
 .act-man-rows button.act { min-width: 3.1rem; padding: .5rem .6rem; }
 .act-man { color: var(--occ); }
+
+/* Deux rangees de boutons qui se suivent doivent RESPIRER. Sans cette regle,
+   `gap` ne jouait qu'a l'interieur d'une rangee : deux rangees consecutives se
+   touchaient, et on ne voyait plus quel bouton repondait a quelle question. */
+.acts .act-row + .act-row { margin-top: .45rem; }
+.acts .act-state + .act-row { margin-top: .3rem; }
