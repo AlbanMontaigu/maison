@@ -1557,25 +1557,68 @@ const tomorrowKey = () => dayKey(Math.floor(Date.now() / 1000) + 86400);
 // allume/eteint mais une position -- dire « couper le volet » ferait croire a
 // une fermeture, soit l'inverse d'un volet reste ouvert.
 const KIND_UI = {
-  ac:    { label: 'Clim',        cut: 'Couper',       cutState: 'Clim coupée',   freeState: 'Clim pilotée normalement par le moteur.',        back: 'Réactiver la clim' },
-  fan:   { label: 'Ventilateur', cut: 'Couper',       cutState: 'Ventilateur coupé', freeState: 'Ventilateur piloté normalement par le moteur.', back: 'Réactiver le ventilateur' },
-  velux: { label: 'Volet',       cut: 'Figer',        cutState: 'Volet figé — il reste où il est', freeState: 'Volet piloté normalement par le moteur.', back: 'Rendre la main au moteur' },
+  ac:    { manualOn: 'Allumer', manualOff: 'Couper', label: 'Clim',        cut: 'Couper',       cutState: 'Clim coupée',   freeState: 'Clim pilotée normalement par le moteur.',        back: 'Réactiver la clim' },
+  fan:   { manualOn: 'Allumer', manualOff: 'Couper', label: 'Ventilateur', cut: 'Couper',       cutState: 'Ventilateur coupé', freeState: 'Ventilateur piloté normalement par le moteur.', back: 'Réactiver le ventilateur' },
+  velux: { manualOn: 'Ouvrir', manualOff: 'Fermer', label: 'Volet',       cut: 'Figer',        cutState: 'Volet figé — il reste où il est', freeState: 'Volet piloté normalement par le moteur.', back: 'Rendre la main au moteur' },
 };
 // Ordre d'affichage stable, du levier le plus utilise au moins utilise. Sans
 // lui, l'ordre viendrait des cles du JSON et pourrait changer d'un deploiement
 // a l'autre -- des boutons qui se deplacent sous le pouce.
 const KIND_ORDER = ['ac', 'fan', 'velux'];
+// Durees proposees pour une consigne minutee. 3 h est le defaut, comme sur un
+// thermostat : assez pour une soiree, assez court pour qu'un oubli ne coute pas
+// une nuit. Le reste est a un clic, il n'y a donc pas de champ libre a remplir.
+const HOURS = [1, 2, 3, 6];
+const DEFAULT_HOURS = 3;
+const hhmmLocal = (ts) => new Date(ts * 1000).toLocaleTimeString('fr-FR',
+  { hour: '2-digit', minute: '2-digit' });
+
+// Les boutons « a la main » : forcer l'appareil pour quelques heures, dans un
+// sens ou dans l'autre. Ils sont proposes MEME quand une coupure permanente
+// court -- « allume 2 h quand meme » est une demande legitime, et c'est la
+// consigne minutee qui gagne.
+function manualRow(kind, info, zoneName) {
+  const ui = KIND_UI[kind];
+  const m = info.manual;
+  const z = `data-zone="${esc(zoneName)}"`;
+  // PAS `info.verb` : pour la clim c'est `clim1`/`clim2`/`salon`, qui nomment
+  // leur piece en dur et refusent `--zone`. L'API donne le verbe generique.
+  const verb = esc(info.manual_verb || info.verb);
+  if (m) {
+    const quoi = kind === 'velux'
+      ? (m.mode === 'on' ? 'ouvert' : 'fermé')
+      : (m.mode === 'on' ? ui.manualOn : ui.manualOff);
+    return `<p class="act-state act-man">🖐️ ${quoi} à la main jusqu'à ${esc(hhmmLocal(m.until_ts))}.</p>
+      <div class="act-row">
+        <button type="button" class="act act-quiet" data-cmd="${verb}" data-value="on" ${z}>Rendre la main au moteur</button>
+      </div>`;
+  }
+  const btns = (mode) => HOURS.map((h) =>
+    `<button type="button" class="act ${h === DEFAULT_HOURS ? '' : 'act-quiet'}"
+       data-cmd="${verb}" data-value="${mode}" data-hours="${h}" ${z}>${h} h</button>`).join('');
+  // « Couper pour 2 h » sur un appareil DEJA coupe ne fait rien et encombre. Le
+  // sens inverse reste propose : « allume-le 2 h quand meme » est une demande
+  // legitime, et c'est justement ce que la consigne minutee sait faire.
+  const rows = [
+    `<div class="act-row"><span class="act-tag">${kind === 'velux' ? 'Ouvrir' : ui.manualOn} pour</span>${btns('on')}</div>`,
+    info.off ? '' :
+      `<div class="act-row"><span class="act-tag">${kind === 'velux' ? 'Fermer' : ui.manualOff} pour</span>${btns('off')}</div>`,
+  ].join('');
+  return `<div class="act-man-rows">${rows}</div>`;
+}
 
 function kindBlock(kind, info, zoneName, absent) {
   const ui = KIND_UI[kind];
   if (!ui) return '';
+  const manual = manualRow(kind, info, zoneName);
   // `absent` bloque clim et ventilo partout : proposer « réactiver » ici
   // donnerait un bouton que l'absence annulerait au tick suivant. Le volet,
   // lui, n'est pas concerné par l'absence — le moteur continue ses purges.
   if (absent && kind !== 'velux') {
     return `<div class="act-kind"><h4>${ui.label}</h4>
       <p class="act-none">Maison déclarée vide : déjà coupé partout. La consigne
-      de cette pièce reprendra la main au retour.</p></div>`;
+      de cette pièce reprendra la main au retour.</p>
+      ${manual}</div>`;
   }
   const z = `data-zone="${esc(zoneName)}"`;
   if (info.off) {
@@ -1583,7 +1626,8 @@ function kindBlock(kind, info, zoneName, absent) {
       <p class="act-state">${ui.cutState}.</p>
       <div class="act-row">
         <button type="button" class="act" data-cmd="${esc(info.verb)}" data-value="on" ${z}>${ui.back}</button>
-      </div></div>`;
+      </div>
+      ${manual}</div>`;
   }
   return `<div class="act-kind"><h4>${ui.label}</h4>
     <p class="act-state">${ui.freeState}</p>
@@ -1593,7 +1637,8 @@ function kindBlock(kind, info, zoneName, absent) {
       <label class="act-date">jusqu'au
         <input type="date" data-for="${esc(info.verb)}" data-zone="${esc(zoneName)}" min="${dayKey(Math.floor(Date.now() / 1000))}">
       </label>
-    </div></div>`;
+    </div>
+    ${manual}</div>`;
 }
 
 function zonePanel(zoneName) {
@@ -1736,6 +1781,7 @@ function bindActions() {
     if (b.dataset.value) body.value = b.dataset.value;
     if (b.dataset.until) body.until = b.dataset.until;
     if (b.dataset.zone) body.zone = b.dataset.zone;
+    if (b.dataset.hours) body.hours = Number(b.dataset.hours);
     sendDirective(body);
   });
   // A date is a command as soon as it is picked: asking for a second click on a

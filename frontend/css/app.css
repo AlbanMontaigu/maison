@@ -408,3 +408,15 @@ button.act-quiet { color: var(--ink); background: var(--card-2); border-color: v
   color: var(--ok);
   background: #e7f4ed; border: 1px solid #b9dfcb; border-radius: 8px;
 }
+
+/* Consignes minutees. Deux rangees (allumer / couper) avec la meme grille de
+   durees : l'oeil compare des colonnes, pas des libelles. La duree par defaut
+   est la seule pleine, les autres restent des alternatives visibles. */
+.act-man-rows { margin-top: .7rem; padding-top: .6rem; border-top: 1px dashed var(--edge); }
+.act-man-rows .act-row + .act-row { margin-top: .4rem; }
+.act-tag {
+  flex: 0 0 5.5rem;
+  font-size: .78rem; font-weight: 560; color: var(--ink-dim);
+}
+.act-man-rows button.act { min-width: 3.1rem; padding: .5rem .6rem; }
+.act-man { color: var(--occ); }
