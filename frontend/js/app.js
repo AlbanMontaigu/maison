@@ -1517,38 +1517,71 @@ async function loadCtl() {
 // et « cette nuit » (jusqu'a demain) est propose juste a cote.
 const tomorrowKey = () => dayKey(Math.floor(Date.now() / 1000) + 86400);
 
-function climPanel(zoneName) {
-  const z = (ctl.zones || {})[zoneName];
-  if (!z) {
-    return `<p class="act-none">Aucune commande pour cette pièce : le moteur n'a
-      de consigne manuelle que pour les climatiseurs.</p>`;
-  }
-  const off = !!(ctl.directives || {})[z.key];
-  const absent = !!(ctl.directives || {}).absent;
-  const until = (ctl.directives || {}).until;
+// Ce que chaque type d'appareil se laisse faire. Le vocabulaire est porte ici
+// parce qu'il differe VRAIMENT d'un appareil a l'autre : couper une clim et
+// figer un volet ne sont pas la meme action. Un volet n'a pas d'etat
+// allume/eteint mais une position -- dire « couper le volet » ferait croire a
+// une fermeture, soit l'inverse d'un volet reste ouvert.
+const KIND_UI = {
+  ac:    { label: 'Clim',        cut: 'Couper',       cutState: 'Clim coupée',   freeState: 'Clim pilotée normalement par le moteur.',        back: 'Réactiver la clim' },
+  fan:   { label: 'Ventilateur', cut: 'Couper',       cutState: 'Ventilateur coupé', freeState: 'Ventilateur piloté normalement par le moteur.', back: 'Réactiver le ventilateur' },
+  velux: { label: 'Volet',       cut: 'Figer',        cutState: 'Volet figé — il reste où il est', freeState: 'Volet piloté normalement par le moteur.', back: 'Rendre la main au moteur' },
+};
+// Ordre d'affichage stable, du levier le plus utilise au moins utilise. Sans
+// lui, l'ordre viendrait des cles du JSON et pourrait changer d'un deploiement
+// a l'autre -- des boutons qui se deplacent sous le pouce.
+const KIND_ORDER = ['ac', 'fan', 'velux'];
 
-  if (absent) {
-    return `<p class="act-none">La maison est déclarée vide : clims et ventilo
-      sont déjà coupés partout. La consigne de cette pièce reprendra la main au
-      retour.</p>`;
+function kindBlock(kind, info, zoneName, absent) {
+  const ui = KIND_UI[kind];
+  if (!ui) return '';
+  // `absent` bloque clim et ventilo partout : proposer « réactiver » ici
+  // donnerait un bouton que l'absence annulerait au tick suivant. Le volet,
+  // lui, n'est pas concerné par l'absence — le moteur continue ses purges.
+  if (absent && kind !== 'velux') {
+    return `<div class="act-kind"><h4>${ui.label}</h4>
+      <p class="act-none">Maison déclarée vide : déjà coupé partout. La consigne
+      de cette pièce reprendra la main au retour.</p></div>`;
   }
-  if (off) {
-    return `<p class="act-state">❄️ Clim coupée${until ? ` jusqu'au ${esc(frDate(until))} inclus` : ' pour aujourd\'hui'}.</p>
+  const z = `data-zone="${esc(zoneName)}"`;
+  if (info.off) {
+    return `<div class="act-kind"><h4>${ui.label}</h4>
+      <p class="act-state">${ui.cutState}.</p>
       <div class="act-row">
-        <button type="button" class="act" data-cmd="${esc(z.verb)}" data-value="on">Réactiver la clim</button>
-      </div>`;
+        <button type="button" class="act" data-cmd="${esc(info.verb)}" data-value="on" ${z}>${ui.back}</button>
+      </div></div>`;
   }
-  return `<p class="act-state">Clim pilotée normalement par le moteur.</p>
+  return `<div class="act-kind"><h4>${ui.label}</h4>
+    <p class="act-state">${ui.freeState}</p>
     <div class="act-row">
-      <button type="button" class="act" data-cmd="${esc(z.verb)}" data-value="off">Couper ce soir</button>
-      <button type="button" class="act" data-cmd="${esc(z.verb)}" data-value="off" data-until="${tomorrowKey()}">Couper cette nuit</button>
+      <button type="button" class="act" data-cmd="${esc(info.verb)}" data-value="off" ${z}>${ui.cut} ce soir</button>
+      <button type="button" class="act" data-cmd="${esc(info.verb)}" data-value="off" data-until="${tomorrowKey()}" ${z}>${ui.cut} cette nuit</button>
       <label class="act-date">jusqu'au
-        <input type="date" data-for="${esc(z.verb)}" min="${dayKey(Math.floor(Date.now() / 1000))}">
+        <input type="date" data-for="${esc(info.verb)}" data-zone="${esc(zoneName)}" min="${dayKey(Math.floor(Date.now() / 1000))}">
       </label>
-    </div>
-    <p class="act-fine">« Ce soir » expire à minuit, et le moteur peut rallumer
-      entre minuit et 5 h du matin. Pour couvrir la nuit, choisir « cette
-      nuit ».</p>`;
+    </div></div>`;
+}
+
+function zonePanel(zoneName) {
+  const kinds = (ctl.zones || {})[zoneName];
+  if (!kinds || !Object.keys(kinds).length) {
+    return `<p class="act-none">Aucune commande pour cette pièce : le moteur n'y
+      pilote aucun appareil qui accepte une consigne manuelle.</p>`;
+  }
+  const absent = !!(ctl.directives || {}).absent;
+  const blocks = KIND_ORDER.filter((k) => kinds[k])
+    .map((k) => kindBlock(k, kinds[k], zoneName, absent)).join('');
+  // `until` est GLOBAL a l'override : il peut venir d'une consigne posee sur une
+  // AUTRE piece. L'annoncer ici sans verifier qu'il se passe quelque chose dans
+  // celle-ci affichait « une consigne court jusqu'au 23/08 » sur une piece qui
+  // n'en a aucune -- et chassait au passage l'avertissement sur minuit.
+  const until = (ctl.directives || {}).until;
+  const somethingOff = Object.values(kinds).some((k) => k.off);
+  return blocks + (until && somethingOff
+    ? `<p class="act-fine">La consigne de cette pièce court jusqu'au ${esc(frDate(until))} inclus.</p>`
+    : `<p class="act-fine">« Ce soir » expire à minuit, et le moteur peut
+       reprendre entre minuit et 5 h du matin. Pour couvrir la nuit, choisir
+       « cette nuit ».</p>`);
 }
 
 function housePanel() {
@@ -1601,7 +1634,7 @@ function actionsHtml() {
       acceptent une consigne : aucun bouton n'est proposé plutôt que d'en
       proposer au hasard.</p>`;
   } else {
-    body = solo ? climPanel(solo) : housePanel();
+    body = solo ? zonePanel(solo) : housePanel();
   }
 
   return `<section class="acts" ${ctlBusy ? 'data-busy="1"' : ''}>
@@ -1654,6 +1687,7 @@ function bindActions() {
     const body = { cmd: b.dataset.cmd };
     if (b.dataset.value) body.value = b.dataset.value;
     if (b.dataset.until) body.until = b.dataset.until;
+    if (b.dataset.zone) body.zone = b.dataset.zone;
     sendDirective(body);
   });
   // A date is a command as soon as it is picked: asking for a second click on a
@@ -1662,9 +1696,11 @@ function bindActions() {
     const i = ev.target.closest('input[type=date]');
     if (!i || !i.value) return;
     const cmd = i.dataset.for;
-    sendDirective(cmd === 'absent'
+    const body = cmd === 'absent'
       ? { cmd: 'absent', value: 'on', until: i.value }
-      : { cmd, value: 'off', until: i.value });
+      : { cmd, value: 'off', until: i.value };
+    if (i.dataset.zone) body.zone = i.dataset.zone;
+    sendDirective(body);
   });
 }
 

@@ -376,3 +376,8 @@ button.act-quiet { color: var(--ink); background: var(--card-2); border-color: v
   background: var(--card-2); border-radius: 8px;
 }
 .act-fine { margin: .5rem 0 0; font-size: .76rem; color: var(--ink-dim); }
+
+/* Une piece peut avoir plusieurs appareils (clim ET ventilo). Chacun son bloc :
+   une rangee unique de six boutons ne dirait plus lequel agit sur quoi. */
+.act-kind + .act-kind { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--edge); }
+.act-kind h4 { margin: 0 0 .35rem; font-size: .74rem; font-weight: 620; color: var(--ink-dim); }
