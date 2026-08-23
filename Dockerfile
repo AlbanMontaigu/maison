@@ -1,9 +1,14 @@
-# Static single-container deploy: nginx serves the frontend from the image and
-# the live data from a mounted volume. Nothing is built, nothing is compiled --
-# the page is vanilla HTML/CSS/JS, like the other apps on this Coolify.
+# Single-container deploy: nginx serves the frontend from the image, the live
+# data from a mounted volume, and proxies /api/ to the comfort API on the mac.
+# Nothing is built, nothing is compiled -- the page is vanilla HTML/CSS/JS, and
+# the proxy is nginx itself rather than a second process to supervise.
 FROM nginx:1.27-alpine
 
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Rendered at start-up by the image's envsubst hook, because the config now
+# carries the comfort API's URL and bearer -- neither of which may be baked
+# into a public image.
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY docker-entrypoint.d/ /docker-entrypoint.d/
 COPY frontend/ /usr/share/nginx/html/
 
 # Human-readable build timestamp, shown in the footer so a deployed instance

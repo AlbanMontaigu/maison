@@ -1,12 +1,12 @@
 # Maison · Confort
 
-Read-only dashboard for the house comfort engine: current state per zone and
-7 days of history — temperature curves against the comfort band, and a strip of
-what the engine was doing, minute by minute.
+Dashboard for the house comfort engine: current state per zone and 7 days of
+history — temperature curves against the comfort band, and a strip of what the
+engine was doing, minute by minute. Plus a handful of buttons to override it.
 
 ![no build step](https://img.shields.io/badge/build%20step-none-blue)
 ![single container](https://img.shields.io/badge/deploy-single%20container-brightgreen)
-![read only](https://img.shields.io/badge/api-read%20only-lightgrey)
+![data is pushed](https://img.shields.io/badge/data-pushed%2C%20never%20pulled-lightgrey)
 
 The interface is in French; the code and documentation are in English.
 
@@ -28,14 +28,51 @@ flowchart LR
 
 Consequences worth knowing before changing anything:
 
-- **There is no write endpoint.** Nothing here accepts a POST, so there is no
-  ingest route to authenticate and nothing to punch through the access layer in
-  front of the domain. Adding one would create both problems at once.
+- **Nothing writes the payload but the push.** There is no ingest route, so a
+  broken push cannot be papered over from the outside, and there is nothing to
+  authenticate on the read path.
 - **The payload is not in the image.** A redeploy never touches the data, and a
   broken push never takes the page down — it just goes stale, which the header
   says out loud.
 - **Rolling back is stopping the push.** The container keeps serving the last
   payload it received.
+
+## How an action gets back
+
+Reading is one direction; the buttons are the other, and they take a different
+road. The browser only ever calls **its own origin** — `/api/...` — and knows
+nothing about where the house is. nginx is the backend: it proxies that prefix
+to a small API on the mac, adding a bearer the page never sees.
+
+```mermaid
+flowchart LR
+    B[browser<br/>behind Cloudflare Access] -->|POST /api/directive| N[nginx<br/>this container]
+    N -->|HTTPS over the tailnet<br/>+ bearer| A[comfort-api.py<br/>on the mac]
+    A --> D[comfort-directive.py]
+    D --> E[comfort engine]
+```
+
+Why it is shaped like that:
+
+- **The mac listens on loopback only.** It is published on the tailnet by
+  `tailscale serve`, which terminates TLS with a real certificate. Nothing is
+  exposed to the internet, and no port is opened on the machine.
+- **The bearer stays server-side.** It is an environment variable of this
+  container (`COMFORT_API_TOKEN`); the container refuses to start without it,
+  because a container that boots with an empty bearer looks healthy while every
+  button silently answers 401.
+- **No validation happens here.** The API on the mac owns the allowlist of verbs
+  and the meaning of a directive. A second check in this repo would be a second
+  authority, free to drift from the first.
+- **A 200 is not proof.** If the upstream URL is wrong, the tailnet serves a
+  different app and answers 200 with HTML. The page checks the JSON shape, not
+  the status code.
+- **The read path does not depend on the write path.** With the API down, `/api/`
+  answers 502 and the page still shows the house — the measurements arrive by
+  the push, which is untouched.
+
+Two environment variables are required: `COMFORT_API_URL` (up to and including
+the `/comfort` path) and `COMFORT_API_TOKEN`.
 
 ## The payload
 

@@ -1,0 +1,76 @@
+# Rendered at container start by nginx's own envsubst hook (the image ships
+# /docker-entrypoint.d/20-envsubst-on-templates.sh). Only variables that exist
+# in the environment are substituted, so nginx's own $uri / $upstream_* are
+# untouched -- they are written without braces on purpose.
+
+# One click is one house action, and the engine takes seconds to answer. This is
+# not anti-DDoS -- Cloudflare Access is already in front -- it is a guard against
+# an impatient thumb queueing twenty identical commands.
+limit_req_zone $binary_remote_addr zone=comfort:1m rate=30r/m;
+
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Live payload, pushed into the mounted volume every 10 min. Never cached:
+    # a stale data.json would silently show yesterday's house.
+    location = /data.json {
+        alias /data/data.json;
+        default_type application/json;
+        add_header Cache-Control "no-store" always;
+        # No payload yet (first deploy, or push broken): answer 204 rather than
+        # 404 so the page can say "waiting for data" instead of showing an error.
+        try_files $uri =204;
+    }
+
+    # The page's own backend. The browser calls /api/... same-origin and knows
+    # nothing of where the house lives; this is the only place that does.
+    #
+    # There is no application logic here on purpose. The comfort API on the mac
+    # already owns the allowlist of verbs and the meaning of a directive --
+    # validating a second time here would create a second authority that drifts
+    # from the first. What this layer adds is exactly what only it can: the
+    # bearer (which must never reach the browser), and the fact that the page
+    # stays same-origin.
+    location /api/ {
+        limit_req zone=comfort burst=5 nodelay;
+
+        # Trailing slash on both sides: /api/state -> <url>/state.
+        proxy_pass ${COMFORT_API_URL}/;
+        proxy_http_version 1.1;
+
+        # The token lives in the container environment, never in the image and
+        # never in a response. Whatever the browser sends in Authorization is
+        # replaced, not merged.
+        proxy_set_header Authorization "Bearer ${COMFORT_API_TOKEN}";
+
+        # Talking to a tailnet host over TLS: SNI must be on, and the
+        # certificate is a real Let's Encrypt one, so verify it rather than
+        # trusting the tailnet blindly.
+        proxy_ssl_server_name on;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+        proxy_ssl_verify_depth 3;
+
+        # Applying a directive restarts the engine, which comfort-directive.py
+        # bounds at 180 s. Cutting the answer short would leave the page unable
+        # to say whether the house moved -- the one thing it must never guess.
+        proxy_connect_timeout 10s;
+        proxy_read_timeout 210s;
+        proxy_send_timeout 210s;
+
+        add_header Cache-Control "no-store" always;
+    }
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    # The static assets are versioned by the image, so a redeploy must win over
+    # whatever the browser kept.
+    location ~* \.(css|js)$ {
+        add_header Cache-Control "no-cache" always;
+    }
+}
