@@ -448,6 +448,12 @@ button.act-quiet { color: var(--ink); background: var(--card-2); border-color: v
    doit donc rester en dessous de celui des boutons d'action, sinon la page
    propose deux fois « appuie ici » pour deux gestes tres differents. */
 .act-dur { flex-wrap: wrap; }
+/* La rangee « jusqu'au » suit celle des durees : elles disent la meme chose de
+   deux facons, elles doivent se lire comme une paire, pas comme deux reglages
+   sans rapport. */
+.act-dur + .act-dur { margin-top: .3rem; }
+.act-dur .act-fine { margin: 0; }
+button.dur-clear, button.abs-clear { font-size: .74rem; }
 button.dur {
   min-height: 34px; padding: .3rem .55rem;
   font: inherit; font-size: .82rem;

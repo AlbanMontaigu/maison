@@ -1955,12 +1955,14 @@ const KIND_ORDER = ['ac', 'fan', 'velux'];
 // date) pour la meme dimension, et le champ date COMMANDAIT la maison des qu'on
 // touchait au selecteur -- seul controle de la page a agir sans qu'on appuie sur
 // rien. Ici la date ne fait que renseigner la duree ; c'est l'action qui agit.
+// La DATE n'est pas une duree parmi d'autres : elle a sa propre rangee. Melangee
+// aux puces, elle allongeait la liste au point de la replier sur deux lignes, et
+// elle demandait un second geste la ou les autres n'en demandent qu'un.
 const DURATIONS = [
   { id: '1h', label: '1 h', hours: 1 },
   { id: '3h', label: '3 h', hours: 3 },
   { id: '6h', label: '6 h', hours: 6 },
   { id: 'soir', label: 'ce soir' },     // echelle JOUR : expire a minuit
-  { id: 'date', label: "jusqu'au…" },   // echelle JOUR : expire a la date choisie
 ];
 const DEFAULT_DUR = '3h';
 // Selection par appareil, gardee hors du DOM : le panneau est re-rendu apres
@@ -1989,35 +1991,37 @@ function hoursUntilEndOf(dayIso) {
 //   dayUntil   : date d'echeance pour une consigne a l'echelle du jour
 //                (undefined = « ce soir », pas de date a poser)
 function durationSpec(zoneName, kind) {
+  // Une date posee l'emporte : c'est le choix le plus explicite des deux, et
+  // celui qui demande le plus de gestes -- l'ignorer au profit d'une puce
+  // rendrait ces gestes sans effet.
+  const day = durDate.get(durKey(zoneName, kind)) || null;
+  if (day) {
+    return { id: 'date', label: frDate(day), dayScale: true, until: day,
+             forceHours: hoursUntilEndOf(day) };
+  }
   const id = durPick.get(durKey(zoneName, kind)) || DEFAULT_DUR;
   const d = DURATIONS.find((x) => x.id === id) || DURATIONS[1];
   if (d.hours) return { id, label: d.label, forceHours: d.hours, dayScale: false };
-  if (id === 'soir') {
-    return { id, label: d.label, forceHours: hoursUntilEndOf(null), dayScale: true, until: null };
-  }
-  const day = durDate.get(durKey(zoneName, kind)) || null;
-  return {
-    id, label: day ? frDate(day) : d.label, dayScale: true, until: day,
-    forceHours: day ? hoursUntilEndOf(day) : null,
-    missing: !day,
-  };
+  return { id, label: d.label, forceHours: hoursUntilEndOf(null), dayScale: true, until: null };
 }
 
 function durationRow(zoneName, kind) {
   const key = durKey(zoneName, kind);
-  const cur = durPick.get(key) || DEFAULT_DUR;
+  const day = durDate.get(key) || '';
+  const cur = day ? null : (durPick.get(key) || DEFAULT_DUR);
   const z = `data-zone="${esc(zoneName)}" data-kind="${esc(kind)}"`;
   const chips = DURATIONS.map((d) =>
     `<button type="button" class="dur${d.id === cur ? ' on' : ''}" data-dur="${d.id}" ${z}
       aria-pressed="${d.id === cur}">${esc(d.label)}</button>`).join('');
-  const day = durDate.get(key) || '';
-  // Le champ n'apparait que si « jusqu'au… » est choisi, et il ne fait que
-  // RENSEIGNER la duree : plus aucune commande ne part d'un selecteur de date.
-  const field = cur === 'date'
-    ? `<input type="date" class="dur-date" ${z} value="${esc(day)}"
-        min="${dayKey(Math.floor(Date.now() / 1000))}">`
-    : '';
-  return `<div class="act-row act-dur"><span class="act-tag">durée</span>${chips}${field}</div>`;
+  // Deux rangees, deux facons de dire la meme chose : une duree ronde, ou une
+  // date. Elles s'excluent -- poser une date eteint les puces, cliquer une puce
+  // efface la date -- sinon deux reglages contradictoires resteraient allumes.
+  return `<div class="act-row act-dur"><span class="act-tag">durée</span>${chips}</div>
+    <div class="act-row act-dur"><span class="act-tag">jusqu'au</span>
+      <input type="date" class="dur-date" ${z} value="${esc(day)}"
+        min="${dayKey(Math.floor(Date.now() / 1000))}">
+      ${day ? `<button type="button" class="dur dur-clear" ${z}>effacer</button>` : ''}
+    </div>`;
 }
 
 // Un bouton d'action, arme ou visiblement desarme AVEC sa raison. Un bouton qui
@@ -2151,19 +2155,19 @@ function housePanel() {
     // Même règle que pour les appareils : la date RENSEIGNE, le bouton agit.
     // Elle déclenchait la commande sur simple choix, et sur téléphone le
     // sélecteur natif émet son événement pendant qu'on fait défiler les jours.
+    // Même découpage que sur un appareil : la durée d'un côté, la date de
+    // l'autre. Ici la durée n'a qu'une valeur possible (« ce soir »), donc seule
+    // la date a besoin d'une rangée — vide, l'absence vaut pour aujourd'hui.
     : `<div class="act-row act-dur"><span class="act-tag">jusqu'au</span>
-         <button type="button" class="dur${absentDate === null ? ' on' : ''}" data-abs-dur="soir"
-           aria-pressed="${absentDate === null}">ce soir</button>
-         <button type="button" class="dur${absentDate === null ? '' : ' on'}" data-abs-dur="date"
-           aria-pressed="${absentDate !== null}">une date…</button>
-         ${absentDate === null ? '' : `<input type="date" class="abs-date" data-for="absent"
-           value="${esc(absentDate || '')}" min="${tomorrowKey()}">`}
+         <input type="date" class="abs-date" data-for="absent"
+           value="${esc(absentDate || '')}" min="${tomorrowKey()}">
+         ${absentDate ? '<button type="button" class="dur abs-clear">effacer</button>' : ''}
+         <span class="act-fine">${absentDate ? '' : 'vide : aujourd’hui seulement'}</span>
        </div>
        <div class="act-row">
          ${actBtn('Maison vide', absentDate
              ? { cmd: 'absent', value: 'on', until: absentDate }
-             : { cmd: 'absent', value: 'on' }, null,
-             absentDate === '' ? 'choisir une date d’abord' : null, true)}
+             : { cmd: 'absent', value: 'on' }, null, null, true)}
        </div>`));
 
   out.push(block('Théa', d.at_creche === true
@@ -2270,12 +2274,17 @@ function bindActions() {
     // redessine pour montrer ce que ce choix rend possible.
     const dur = ev.target.closest('button.dur');
     if (dur) {
-      if (dur.dataset.absDur) {
-        // null = « ce soir » ; '' = une date est demandée mais pas encore
-        // choisie (le champ s'affiche, le bouton attend) ; une chaîne = choisie.
-        absentDate = dur.dataset.absDur === 'soir' ? null : (absentDate || '');
+      if (dur.classList.contains('dur-clear')) {
+        durDate.delete(durKey(dur.dataset.zone, dur.dataset.kind));
+        renderActions();
+        return;
       }
-      else durPick.set(durKey(dur.dataset.zone, dur.dataset.kind), dur.dataset.dur);
+      if (dur.classList.contains('abs-clear')) absentDate = null;
+      else {
+        const k = durKey(dur.dataset.zone, dur.dataset.kind);
+        durPick.set(k, dur.dataset.dur);
+        durDate.delete(k);   // les deux rangees s'excluent
+      }
       renderActions();
       return;
     }
