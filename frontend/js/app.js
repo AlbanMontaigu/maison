@@ -822,9 +822,10 @@ function energyMarks(t0, t1) {
   return out;
 }
 
-// Plages de fonctionnement de chaque appareil CONSOMMATEUR, sous la courbe.
-// Les volets en sont exclus : ils ne consomment rien, et leur place ici
-// laisserait croire qu'ils pesent sur le trait du dessus.
+// Plages de fonctionnement de chaque appareil, sous la courbe. D'abord les
+// CONSOMMATEURS (clim, ventilo) en blocs pleins, puis les volets en barres dont
+// la hauteur est l'ouverture : ceux-la ne consomment rien, et leur donner la
+// meme forme les ferait lire comme une depense sur le trait du dessus.
 //
 // Les series du moteur sont a un autre pas (10 min) et sur une autre etendue
 // que la courbe de charge (30 min) : chaque segment est donc place par son
@@ -839,6 +840,7 @@ function energyDevices(t0, t1) {
   // marche encore en cours au dernier releve serait dessinee comme un trait.
   const step = ts.length > 1 ? (ts[1] - ts[0]) : 600;
   const rows = [];
+  let velux = false;
 
   for (const z of payload.zones || []) {
     for (const [kind, label, color] of DEVICE_KINDS) {
@@ -869,14 +871,49 @@ function energyDevices(t0, t1) {
         any = true;
       }
       if (!any) continue;
-      const name = `${label} ${z.name}`;
-      rows.push(`<div class="erow2">
-        <span class="elab" title="${esc(name)}">${esc(name)}</span>
-        <div class="estrip"><svg viewBox="0 0 1000 10" preserveAspectRatio="none" aria-hidden="true">${rects}</svg></div>
-      </div>`);
+      rows.push(deviceRow(`${label} ${z.name}`, rects));
     }
   }
-  return rows.join('');
+
+  // Les volets ferment la marche, et se dessinent AUTREMENT : une barre dont la
+  // HAUTEUR est le pourcentage d'ouverture, pas un bloc plein. Ils ne consomment
+  // rien -- leur donner la meme forme que la clim les ferait lire comme une
+  // depense sur le trait du dessus. Position 0 (ferme) garde un filet visible :
+  // « ferme » et « pas de mesure » ne doivent pas se ressembler.
+  for (const z of payload.zones || []) {
+    const raw = (z.series || {}).velux;
+    if (!raw || !raw.length) continue;
+    const ser = expand(raw, ts.length);
+    let rects = '', any = false, runFrom = null, runVal = null;
+    const flush = (endTs) => {
+      if (runFrom === null) return;
+      const x0 = ((runFrom - t0) / span) * 1000;
+      const x1 = ((Math.min(endTs, t1) - t0) / span) * 1000;
+      const h = Math.max(1.5, (runVal / 100) * 10);
+      rects += `<rect x="${x0.toFixed(1)}" y="${(10 - h).toFixed(1)}"`
+        + ` width="${Math.max(1, x1 - x0).toFixed(1)}" height="${h.toFixed(1)}"`
+        + ` fill="var(--velux)" opacity=".8"/>`;
+      any = true;
+      runFrom = null;
+    };
+    for (let i = 0; i < ts.length; i++) {
+      const inWin = ts[i] >= t0 && ts[i] <= t1;
+      const v = inWin ? ser[i] : null;
+      if (v == null) { flush(ts[i]); runVal = null; continue; }
+      if (runFrom === null) { runFrom = ts[i]; runVal = v; }
+      else if (v !== runVal) { flush(ts[i]); runFrom = ts[i]; runVal = v; }
+    }
+    flush(ts[ts.length - 1] + step);
+    if (any) { rows.push(deviceRow(`volet ${z.name}`, rects)); velux = true; }
+  }
+  return { html: rows.join(''), velux };
+}
+
+function deviceRow(name, rects) {
+  return `<div class="erow2">
+      <span class="elab" title="${esc(name)}">${esc(name)}</span>
+      <div class="estrip"><svg viewBox="0 0 1000 10" preserveAspectRatio="none" aria-hidden="true">${rects}</svg></div>
+    </div>`;
 }
 
 function energyCurve(e) {
@@ -961,6 +998,7 @@ function energyCurve(e) {
 
   ecurve = { use, oT, t0, t1, unit, fmt };
 
+  const devices = energyDevices(t0, t1);
   const axis = energyMarks(t0, t1)
     .map(([pos, l]) => `<span style="left:${(pos * 100).toFixed(2)}%">${esc(l)}</span>`).join('');
 
@@ -978,9 +1016,9 @@ function energyCurve(e) {
           <div class="ecur" hidden></div>
         </div>
       </div>
-      ${energyDevices(t0, t1)}
+      ${devices.html}
       <div class="erow2"><span class="elab"></span><div class="eaxis">${axis}</div></div>
-      <div class="eleg">pointe ${esc(fmt(hi))}${tempLbl ? ` · ${esc(tempLbl)}` : ''}</div>
+      <div class="eleg">pointe ${esc(fmt(hi))}${tempLbl ? ` · ${esc(tempLbl)}` : ''}${devices.velux ? ' · volets : hauteur = ouverture' : ''}</div>
     </div>`;
 }
 
