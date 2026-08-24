@@ -1993,6 +1993,10 @@ function zonePanel(zoneName) {
 
 function housePanel() {
   const d = ctl.directives || {};
+  // `d.until` est une CARTE {clé: date} depuis le 24/08 : chaque consigne porte
+  // sa fenêtre. La ligne d'absence prend donc celle de l'absence -- la lire en
+  // bloc afficherait « [object Object] », et une date unique parlerait au nom
+  // de consignes qui ne l'ont pas demandée.
   // Trois sujets sans rapport entre eux -- l'absence, Thea, l'annulation --
   // etaient empiles sans rien qui les separe : les boutons se touchaient et on
   // ne voyait plus lequel repondait a quoi. Meme decoupage en blocs titres que
@@ -2001,7 +2005,7 @@ function housePanel() {
   const out = [];
 
   out.push(block('Absence', d.absent
-    ? `<p class="act-state">🚪 Maison déclarée vide${d.absent_reason ? ` (${esc(d.absent_reason)})` : ''}${d.until ? `, jusqu'au ${esc(frDate(d.until))} inclus` : ''}.</p>
+    ? `<p class="act-state">🚪 Maison déclarée vide${d.absent_reason ? ` (${esc(d.absent_reason)})` : ''}${(d.until || {}).absent ? `, jusqu'au ${esc(frDate(d.until.absent))} inclus` : ''}.</p>
        <div class="act-row"><button type="button" class="act" data-cmd="absent" data-value="off">Nous sommes rentrés</button></div>`
     : `<div class="act-row">
          <button type="button" class="act" data-cmd="absent" data-value="on">Vide aujourd'hui</button>
