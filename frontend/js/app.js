@@ -1933,93 +1933,178 @@ const tomorrowKey = () => dayKey(Math.floor(Date.now() / 1000) + 86400);
 // figer un volet ne sont pas la meme action. Un volet n'a pas d'etat
 // allume/eteint mais une position -- dire « couper le volet » ferait croire a
 // une fermeture, soit l'inverse d'un volet reste ouvert.
+// Vocabulaire par appareil. Le volet a trois actions et non deux : il n'a pas
+// d'etat marche/arret mais une POSITION, et « le laisser tranquille » (figer)
+// est une troisieme intention, pas l'absence des deux autres.
 const KIND_UI = {
-  ac:    { manualOn: 'Allumer', manualOff: 'Couper', label: 'Clim',        cut: 'Couper',       cutState: 'Clim coupée',   freeState: 'Clim pilotée normalement par le moteur.',        back: 'Réactiver la clim' },
-  fan:   { manualOn: 'Allumer', manualOff: 'Couper', label: 'Ventilateur', cut: 'Couper',       cutState: 'Ventilateur coupé', freeState: 'Ventilateur piloté normalement par le moteur.', back: 'Réactiver le ventilateur' },
-  velux: { manualOn: 'Ouvrir', manualOff: 'Fermer', label: 'Volet',       cut: 'Figer',        cutState: 'Volet figé — il reste où il est', freeState: 'Volet piloté normalement par le moteur.', back: 'Rendre la main au moteur' },
+  ac:    { label: 'Clim',        libre: 'Clim pilotée normalement par le moteur.',
+           on: 'Allumer', off: 'Couper', coupe: 'Clim coupée' },
+  fan:   { label: 'Ventilateur', libre: 'Ventilateur piloté normalement par le moteur.',
+           on: 'Allumer', off: 'Couper', coupe: 'Ventilateur coupé' },
+  velux: { label: 'Volet',       libre: 'Volet piloté normalement par le moteur.',
+           on: 'Ouvrir', off: 'Fermer', fige: 'Figer', coupe: 'Volet figé — il reste où il est' },
 };
 // Ordre d'affichage stable, du levier le plus utilise au moins utilise. Sans
 // lui, l'ordre viendrait des cles du JSON et pourrait changer d'un deploiement
 // a l'autre -- des boutons qui se deplacent sous le pouce.
 const KIND_ORDER = ['ac', 'fan', 'velux'];
-// Durees proposees pour une consigne minutee. 3 h est le defaut, comme sur un
-// thermostat : assez pour une soiree, assez court pour qu'un oubli ne coute pas
-// une nuit. Le reste est a un clic, il n'y a donc pas de champ libre a remplir.
-const HOURS = [1, 2, 3, 6];
-const DEFAULT_HOURS = 3;
+
+// ── Durees ───────────────────────────────────────────────────────────────────
+// UNE seule notion de duree, choisie AVANT l'action. Le panneau en offrait
+// quatre expressions concurrentes (« ce soir », « cette nuit », des heures, une
+// date) pour la meme dimension, et le champ date COMMANDAIT la maison des qu'on
+// touchait au selecteur -- seul controle de la page a agir sans qu'on appuie sur
+// rien. Ici la date ne fait que renseigner la duree ; c'est l'action qui agit.
+const DURATIONS = [
+  { id: '1h', label: '1 h', hours: 1 },
+  { id: '3h', label: '3 h', hours: 3 },
+  { id: '6h', label: '6 h', hours: 6 },
+  { id: 'soir', label: 'ce soir' },     // echelle JOUR : expire a minuit
+  { id: 'date', label: "jusqu'au…" },   // echelle JOUR : expire a la date choisie
+];
+const DEFAULT_DUR = '3h';
+// Selection par appareil, gardee hors du DOM : le panneau est re-rendu apres
+// chaque commande, et un choix stocke dans le HTML disparaitrait a ce moment-la.
+const durPick = new Map();
+const durDate = new Map();
+let absentDate = null;
+const durKey = (zone, kind) => `${zone}|${kind}`;
+
 const hhmmLocal = (ts) => new Date(ts * 1000).toLocaleTimeString('fr-FR',
   { hour: '2-digit', minute: '2-digit' });
 
-// Les boutons « a la main » : forcer l'appareil pour quelques heures, dans un
-// sens ou dans l'autre. Ils sont proposes MEME quand une coupure permanente
-// court -- « allume 2 h quand meme » est une demande legitime, et c'est la
-// consigne minutee qui gagne.
-function manualRow(kind, info, zoneName) {
-  const ui = KIND_UI[kind];
-  const m = info.manual;
-  const z = `data-zone="${esc(zoneName)}"`;
-  // PAS `info.verb` : pour la clim c'est `clim1`/`clim2`/`salon`, qui nomment
-  // leur piece en dur et refusent `--zone`. L'API donne le verbe generique.
-  const verb = esc(info.manual_verb || info.verb);
-  if (m) {
-    const quoi = kind === 'velux'
-      ? (m.mode === 'on' ? 'ouvert' : 'fermé')
-      : (m.mode === 'on' ? ui.manualOn : ui.manualOff);
-    return `<p class="act-state act-man">🖐️ ${quoi} à la main jusqu'à ${esc(hhmmLocal(m.until_ts))}.</p>
-      <div class="act-row">
-        <button type="button" class="act act-quiet" data-cmd="${verb}" data-value="on" ${z}>Rendre la main au moteur</button>
-      </div>`;
-  }
-  const btns = (mode) => HOURS.map((h) =>
-    `<button type="button" class="act ${h === DEFAULT_HOURS ? '' : 'act-quiet'}"
-       data-cmd="${verb}" data-value="${mode}" data-hours="${h}" ${z}>${h} h</button>`).join('');
-  // « Couper pour 2 h » sur un appareil DEJA coupe ne fait rien et encombre. Le
-  // sens inverse reste propose : « allume-le 2 h quand meme » est une demande
-  // legitime, et c'est justement ce que la consigne minutee sait faire.
-  const rows = [
-    `<div class="act-row"><span class="act-tag">${kind === 'velux' ? 'Ouvrir' : ui.manualOn} pour</span>${btns('on')}</div>`,
-    info.off ? '' :
-      `<div class="act-row"><span class="act-tag">${kind === 'velux' ? 'Fermer' : ui.manualOff} pour</span>${btns('off')}</div>`,
-  ].join('');
-  return `<div class="act-man-rows">${rows}</div>`;
+// Heures restantes jusqu'a la fin d'un jour donne (null = aujourd'hui). Sert a
+// exprimer « ce soir » comme une duree : un forcage EN MARCHE n'existe qu'en
+// heures cote moteur, il n'a pas d'equivalent a l'echelle du jour.
+function hoursUntilEndOf(dayIso) {
+  const now = new Date();
+  const end = dayIso ? new Date(`${dayIso}T23:59:59`) : new Date(now);
+  if (!dayIso) end.setHours(23, 59, 59, 0);
+  const h = (end.getTime() - now.getTime()) / 3600000;
+  return h > 0 ? Math.round(h * 10) / 10 : null;
 }
+
+// Ce que la duree choisie sait exprimer, pour chaque sens d'action.
+//   forceHours : duree en heures pour un forcage (marche OU arret minute)
+//   dayUntil   : date d'echeance pour une consigne a l'echelle du jour
+//                (undefined = « ce soir », pas de date a poser)
+function durationSpec(zoneName, kind) {
+  const id = durPick.get(durKey(zoneName, kind)) || DEFAULT_DUR;
+  const d = DURATIONS.find((x) => x.id === id) || DURATIONS[1];
+  if (d.hours) return { id, label: d.label, forceHours: d.hours, dayScale: false };
+  if (id === 'soir') {
+    return { id, label: d.label, forceHours: hoursUntilEndOf(null), dayScale: true, until: null };
+  }
+  const day = durDate.get(durKey(zoneName, kind)) || null;
+  return {
+    id, label: day ? frDate(day) : d.label, dayScale: true, until: day,
+    forceHours: day ? hoursUntilEndOf(day) : null,
+    missing: !day,
+  };
+}
+
+function durationRow(zoneName, kind) {
+  const key = durKey(zoneName, kind);
+  const cur = durPick.get(key) || DEFAULT_DUR;
+  const z = `data-zone="${esc(zoneName)}" data-kind="${esc(kind)}"`;
+  const chips = DURATIONS.map((d) =>
+    `<button type="button" class="dur${d.id === cur ? ' on' : ''}" data-dur="${d.id}" ${z}
+      aria-pressed="${d.id === cur}">${esc(d.label)}</button>`).join('');
+  const day = durDate.get(key) || '';
+  // Le champ n'apparait que si « jusqu'au… » est choisi, et il ne fait que
+  // RENSEIGNER la duree : plus aucune commande ne part d'un selecteur de date.
+  const field = cur === 'date'
+    ? `<input type="date" class="dur-date" ${z} value="${esc(day)}"
+        min="${dayKey(Math.floor(Date.now() / 1000))}">`
+    : '';
+  return `<div class="act-row act-dur"><span class="act-tag">durée</span>${chips}${field}</div>`;
+}
+
+// Un bouton d'action, arme ou visiblement desarme AVEC sa raison. Un bouton qui
+// part et se fait refuser par l'API apprend la regle apres coup ; desarme, il
+// l'apprend avant.
+function actBtn(label, body, zoneName, why, primary) {
+  const cls = `act${primary ? '' : ' act-quiet'}`;
+  if (why) {
+    return `<button type="button" class="${cls}" disabled title="${esc(why)}">${esc(label)}</button>`;
+  }
+  return `<button type="button" class="${cls}" data-body="${esc(JSON.stringify(body))}">${esc(label)}</button>`;
+}
+
+const MAX_FORCE_H = 24;   // borne de l'API : un forcage se compte en heures
 
 function kindBlock(kind, info, zoneName, absent) {
   const ui = KIND_UI[kind];
   if (!ui) return '';
-  const manual = manualRow(kind, info, zoneName);
-  // `absent` bloque clim et ventilo partout : proposer « réactiver » ici
-  // donnerait un bouton que l'absence annulerait au tick suivant. Le volet,
-  // lui, n'est pas concerné par l'absence — le moteur continue ses purges.
-  if (absent && kind !== 'velux') {
-    return `<div class="act-kind"><h4>${ui.label}</h4>
-      <p class="act-none">Maison déclarée vide : déjà coupé partout. La consigne
-      de cette pièce reprendra la main au retour.</p>
-      ${manual}</div>`;
-  }
-  const z = `data-zone="${esc(zoneName)}"`;
-  if (info.off) {
-    // La date vient de l'appareil, pas de la fenetre du fichier : depuis le
-    // 23/08 chaque coupure porte la sienne, et lire la globale affichait
-    // « jusqu'au 23/08 » sur une consigne qui courait au 24.
+  // PAS `info.verb` : pour la clim c'est `clim1`/`clim2`/`salon`, qui nomment
+  // leur piece en dur et refusent une piece en parametre.
+  const verb = info.manual_verb || info.verb;
+  const d = durationSpec(zoneName, kind);
+  const m = info.manual;
+
+  // État courant, en une phrase.
+  let state;
+  if (m) {
+    const quoi = kind === 'velux' ? (m.mode === 'on' ? 'ouvert' : 'fermé')
+      : (m.mode === 'on' ? 'forcé en marche' : 'coupé');
+    state = `<p class="act-state act-man">🖐️ ${quoi} à la main jusqu'à ${esc(hhmmLocal(m.until_ts))}.</p>`;
+  } else if (absent && kind !== 'velux') {
+    // `absent` bloque clim et ventilo partout : le dire, plutôt que d'offrir un
+    // « allumer » que l'absence annulerait au tick suivant.
+    state = `<p class="act-none">Maison déclarée vide : déjà coupé partout.</p>`;
+  } else if (info.off) {
     const quand = info.until ? ` jusqu'au ${esc(frDate(info.until))} inclus` : " pour aujourd'hui";
-    return `<div class="act-kind"><h4>${ui.label}</h4>
-      <p class="act-state">${ui.cutState}${quand}.</p>
-      <div class="act-row">
-        <button type="button" class="act" data-cmd="${esc(info.verb)}" data-value="on" ${z}>${ui.back}</button>
-      </div>
-      ${manual}</div>`;
+    state = `<p class="act-state">${ui.coupe}${quand}.</p>`;
+  } else {
+    state = `<p class="act-state">${ui.libre}</p>`;
   }
+
+  // Rendre la main : un seul bouton, quel que soit ce qui bloque.
+  const release = (m || info.off)
+    ? actBtn('Rendre la main au moteur', { cmd: verb, value: 'on', zone: zoneName },
+             zoneName, null, true)
+    : '';
+
+  const tooLong = "un forçage en marche se compte en heures : au-delà d'une "
+    + 'journée, coupez plutôt, ou rendez la main au moteur';
+  const needDate = 'choisir une date d’abord';
+  const dayOnly = 'figer un volet se déclare à la journée, pas à l’heure';
+
+  const acts = [];
+  if (kind === 'velux') {
+    // Ouvrir / Fermer = position TENUE, donc une durée en heures.
+    for (const [mode, label] of [['on', ui.on], ['off', ui.off]]) {
+      const why = d.missing ? needDate
+        : !d.forceHours ? tooLong
+        : d.forceHours > MAX_FORCE_H ? tooLong : null;
+      acts.push(actBtn(label, { cmd: verb, value: mode, zone: zoneName, hours: d.forceHours },
+                       zoneName, why, mode === 'off'));
+    }
+    // Figer = « n'y touche plus », une intention à l'échelle du jour.
+    const why = !d.dayScale ? dayOnly : d.missing ? needDate : null;
+    const body = { cmd: verb, value: 'off', zone: zoneName };
+    if (d.until) body.until = d.until;
+    acts.push(actBtn(ui.fige, body, zoneName, why, false));
+  } else {
+    // Couper : minuté si la durée est en heures, sinon à l'échelle du jour.
+    const offBody = d.dayScale
+      ? { cmd: verb, value: 'off', zone: zoneName, ...(d.until ? { until: d.until } : {}) }
+      : { cmd: verb, value: 'off', zone: zoneName, hours: d.forceHours };
+    acts.push(actBtn(ui.off, offBody, zoneName, d.missing ? needDate : null, true));
+    // Allumer : n'existe qu'en heures côté moteur.
+    const whyOn = d.missing ? needDate
+      : !d.forceHours ? tooLong
+      : d.forceHours > MAX_FORCE_H ? tooLong : null;
+    acts.push(actBtn(ui.on, { cmd: verb, value: 'on', zone: zoneName, hours: d.forceHours },
+                     zoneName, whyOn, false));
+  }
+
   return `<div class="act-kind"><h4>${ui.label}</h4>
-    <p class="act-state">${ui.freeState}</p>
-    <div class="act-row">
-      <button type="button" class="act" data-cmd="${esc(info.verb)}" data-value="off" ${z}>${ui.cut} ce soir</button>
-      <button type="button" class="act" data-cmd="${esc(info.verb)}" data-value="off" data-until="${tomorrowKey()}" ${z}>${ui.cut} cette nuit</button>
-      <label class="act-date">jusqu'au
-        <input type="date" data-for="${esc(info.verb)}" data-zone="${esc(zoneName)}" min="${dayKey(Math.floor(Date.now() / 1000))}">
-      </label>
-    </div>
-    ${manual}</div>`;
+    ${state}
+    ${release ? `<div class="act-row">${release}</div>` : ''}
+    ${durationRow(zoneName, kind)}
+    <div class="act-row">${acts.join('')}</div>
+  </div>`;
 }
 
 function zonePanel(zoneName) {
@@ -2036,9 +2121,15 @@ function zonePanel(zoneName) {
   // a choisir LAQUELLE quand deux appareils sont coupes a des dates
   // differentes -- et la fenetre globale du fichier, qui servait a ca, ne
   // gouverne plus les coupures par zone.
-  return blocks + `<p class="act-fine">« Ce soir » expire à minuit, et le moteur
-     peut reprendre entre minuit et 5 h du matin. Pour couvrir la nuit, choisir
-     « cette nuit ».</p>`;
+  // La note ne vaut que pour UN choix de durée : ne la montrer que s'il est
+  // retenu quelque part. Répétée sous chaque pièce, elle se lisait comme une
+  // mise en garde générale sur les boutons.
+  const soir = Object.keys(kinds).some((k) => durationSpec(zoneName, k).id === 'soir');
+  return blocks + (soir
+    ? `<p class="act-fine">« Ce soir » s'arrête à minuit — le moteur peut
+       reprendre entre minuit et 5 h du matin. Pour couvrir la nuit, choisir une
+       date.</p>`
+    : '');
 }
 
 function housePanel() {
@@ -2057,13 +2148,22 @@ function housePanel() {
   out.push(block('Absence', d.absent
     ? `<p class="act-state">🚪 Maison déclarée vide${d.absent_reason ? ` (${esc(d.absent_reason)})` : ''}${(d.until || {}).absent ? `, jusqu'au ${esc(frDate(d.until.absent))} inclus` : ''}.</p>
        <div class="act-row"><button type="button" class="act" data-cmd="absent" data-value="off">Nous sommes rentrés</button></div>`
-    : `<div class="act-row">
-         <button type="button" class="act" data-cmd="absent" data-value="on">Vide aujourd'hui</button>
+    // Même règle que pour les appareils : la date RENSEIGNE, le bouton agit.
+    // Elle déclenchait la commande sur simple choix, et sur téléphone le
+    // sélecteur natif émet son événement pendant qu'on fait défiler les jours.
+    : `<div class="act-row act-dur"><span class="act-tag">jusqu'au</span>
+         <button type="button" class="dur${absentDate === null ? ' on' : ''}" data-abs-dur="soir"
+           aria-pressed="${absentDate === null}">ce soir</button>
+         <button type="button" class="dur${absentDate === null ? '' : ' on'}" data-abs-dur="date"
+           aria-pressed="${absentDate !== null}">une date…</button>
+         ${absentDate === null ? '' : `<input type="date" class="abs-date" data-for="absent"
+           value="${esc(absentDate || '')}" min="${tomorrowKey()}">`}
        </div>
        <div class="act-row">
-         <label class="act-date">vide jusqu'au
-           <input type="date" data-for="absent" min="${tomorrowKey()}">
-         </label>
+         ${actBtn('Maison vide', absentDate
+             ? { cmd: 'absent', value: 'on', until: absentDate }
+             : { cmd: 'absent', value: 'on' }, null,
+             absentDate === '' ? 'choisir une date d’abord' : null, true)}
        </div>`));
 
   out.push(block('Théa', d.at_creche === true
@@ -2166,8 +2266,24 @@ function renderActions() {
 
 function bindActions() {
   $('actions').addEventListener('click', (ev) => {
+    // Une puce de durée ne commande RIEN : elle choisit, et le panneau se
+    // redessine pour montrer ce que ce choix rend possible.
+    const dur = ev.target.closest('button.dur');
+    if (dur) {
+      if (dur.dataset.absDur) {
+        // null = « ce soir » ; '' = une date est demandée mais pas encore
+        // choisie (le champ s'affiche, le bouton attend) ; une chaîne = choisie.
+        absentDate = dur.dataset.absDur === 'soir' ? null : (absentDate || '');
+      }
+      else durPick.set(durKey(dur.dataset.zone, dur.dataset.kind), dur.dataset.dur);
+      renderActions();
+      return;
+    }
     const b = ev.target.closest('button.act');
-    if (!b) return;
+    if (!b || b.disabled) return;
+    // Le corps est calculé au RENDU, pas au clic : c'est le seul moyen que le
+    // bouton désarmé et le bouton armé parlent de la même chose.
+    if (b.dataset.body) { sendDirective(JSON.parse(b.dataset.body)); return; }
     const body = { cmd: b.dataset.cmd };
     if (b.dataset.value) body.value = b.dataset.value;
     if (b.dataset.until) body.until = b.dataset.until;
@@ -2175,17 +2291,18 @@ function bindActions() {
     if (b.dataset.hours) body.hours = Number(b.dataset.hours);
     sendDirective(body);
   });
-  // A date is a command as soon as it is picked: asking for a second click on a
-  // "valider" button next to it would be a step with nothing to decide.
+  // Choisir une date ne commande plus rien : elle renseigne la durée, et c'est
+  // l'action qui agit. Le sélecteur natif émet `change` pendant qu'on fait
+  // défiler les jours — on pouvait couper une clim en explorant.
   $('actions').addEventListener('change', (ev) => {
     const i = ev.target.closest('input[type=date]');
     if (!i || !i.value) return;
-    const cmd = i.dataset.for;
-    const body = cmd === 'absent'
-      ? { cmd: 'absent', value: 'on', until: i.value }
-      : { cmd, value: 'off', until: i.value };
-    if (i.dataset.zone) body.zone = i.dataset.zone;
-    sendDirective(body);
+    if (i.classList.contains('dur-date')) {
+      durDate.set(durKey(i.dataset.zone, i.dataset.kind), i.value);
+    } else if (i.dataset.for === 'absent') {
+      absentDate = i.value;
+    }
+    renderActions();
   });
 }
 

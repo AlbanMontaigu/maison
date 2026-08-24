@@ -444,6 +444,31 @@ button.act-quiet { color: var(--ink); background: var(--card-2); border-color: v
 }
 .act-fine { margin: .5rem 0 0; font-size: .76rem; color: var(--ink-dim); }
 
+/* Puces de duree. Elles CHOISISSENT, elles n'agissent pas : leur poids visuel
+   doit donc rester en dessous de celui des boutons d'action, sinon la page
+   propose deux fois « appuie ici » pour deux gestes tres differents. */
+.act-dur { flex-wrap: wrap; }
+button.dur {
+  min-height: 34px; padding: .3rem .55rem;
+  font: inherit; font-size: .82rem;
+  color: var(--ink-dim); background: var(--card-2);
+  border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+}
+button.dur:hover { border-color: var(--ink-dim); }
+button.dur.on { color: var(--ink); background: var(--card); border-color: var(--ink); font-weight: 560; }
+button.dur:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.dur-date, .abs-date {
+  min-height: 34px; padding: 0 .4rem; font: inherit; font-size: .82rem;
+  color: var(--ink); background: var(--card); border: 1px solid var(--line);
+  border-radius: 8px;
+}
+/* Un bouton desarme doit se voir desarme AVANT le clic, sa raison etant dans
+   son title. Le laisser plein ferait promettre une action impossible. */
+button.act[disabled] {
+  background: var(--card-2); color: var(--ink-dim);
+  border-color: var(--line); cursor: not-allowed;
+}
+
 /* Une piece peut avoir plusieurs appareils (clim ET ventilo). Chacun son bloc :
    une rangee unique de six boutons ne dirait plus lequel agit sur quoi. */
 .act-kind + .act-kind { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--edge); }
