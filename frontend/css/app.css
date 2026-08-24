@@ -453,7 +453,8 @@ button.act-quiet { color: var(--ink); background: var(--card-2); border-color: v
    sans rapport. */
 .act-dur + .act-dur { margin-top: .3rem; }
 .act-dur .act-fine { margin: 0; }
-button.dur-clear, button.abs-clear { font-size: .74rem; }
+/* Rangee de valeurs : alignee sous celle des onglets grace au libelle vide. */
+.act-dur .act-tag:empty { visibility: hidden; }
 button.dur {
   min-height: 34px; padding: .3rem .55rem;
   font: inherit; font-size: .82rem;
@@ -462,6 +463,11 @@ button.dur {
 }
 button.dur:hover { border-color: var(--ink-dim); }
 button.dur.on { color: var(--ink); background: var(--card); border-color: var(--ink); font-weight: 560; }
+/* APRES `.dur.on` : a specificite egale c'est l'ordre qui tranche, et l'onglet
+   heritait de l'apparence d'une valeur selectionnee. Les onglets ne sont pas des
+   valeurs -- ils choisissent A QUELLE question on repond -- donc ils sont pleins
+   quand actifs, pour qu'on voie lequel des deux controles est en jeu. */
+button.dur-mode.on { color: var(--card); background: var(--ink); border-color: var(--ink); }
 button.dur:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .dur-date, .abs-date {
   min-height: 34px; padding: 0 .4rem; font: inherit; font-size: .82rem;

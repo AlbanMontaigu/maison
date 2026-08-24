@@ -1969,6 +1969,10 @@ const DEFAULT_DUR = '3h';
 // chaque commande, et un choix stocke dans le HTML disparaitrait a ce moment-la.
 const durPick = new Map();
 const durDate = new Map();
+// « durée » OU « jusqu'au » : le choix est EXCLUSIF, il doit donc se voir comme
+// un choix. Les deux rangées affichées cote a cote, l'une s'eteignant quand
+// l'autre se remplit, laissaient croire a deux reglages qui coexistent.
+const durMode = new Map();   // "zone|kind" -> 'dur' | 'date' 
 let absentDate = null;
 const durKey = (zone, kind) => `${zone}|${kind}`;
 
@@ -1991,15 +1995,14 @@ function hoursUntilEndOf(dayIso) {
 //   dayUntil   : date d'echeance pour une consigne a l'echelle du jour
 //                (undefined = « ce soir », pas de date a poser)
 function durationSpec(zoneName, kind) {
-  // Une date posee l'emporte : c'est le choix le plus explicite des deux, et
-  // celui qui demande le plus de gestes -- l'ignorer au profit d'une puce
-  // rendrait ces gestes sans effet.
-  const day = durDate.get(durKey(zoneName, kind)) || null;
-  if (day) {
-    return { id: 'date', label: frDate(day), dayScale: true, until: day,
-             forceHours: hoursUntilEndOf(day) };
+  const key = durKey(zoneName, kind);
+  if ((durMode.get(key) || 'dur') === 'date') {
+    const day = durDate.get(key) || null;
+    return { id: 'date', label: day ? frDate(day) : "jusqu'au…", dayScale: true,
+             until: day, forceHours: day ? hoursUntilEndOf(day) : null,
+             missing: !day };
   }
-  const id = durPick.get(durKey(zoneName, kind)) || DEFAULT_DUR;
+  const id = durPick.get(key) || DEFAULT_DUR;
   const d = DURATIONS.find((x) => x.id === id) || DURATIONS[1];
   if (d.hours) return { id, label: d.label, forceHours: d.hours, dayScale: false };
   return { id, label: d.label, forceHours: hoursUntilEndOf(null), dayScale: true, until: null };
@@ -2007,21 +2010,26 @@ function durationSpec(zoneName, kind) {
 
 function durationRow(zoneName, kind) {
   const key = durKey(zoneName, kind);
-  const day = durDate.get(key) || '';
-  const cur = day ? null : (durPick.get(key) || DEFAULT_DUR);
+  const mode = durMode.get(key) || 'dur';
   const z = `data-zone="${esc(zoneName)}" data-kind="${esc(kind)}"`;
-  const chips = DURATIONS.map((d) =>
-    `<button type="button" class="dur${d.id === cur ? ' on' : ''}" data-dur="${d.id}" ${z}
-      aria-pressed="${d.id === cur}">${esc(d.label)}</button>`).join('');
-  // Deux rangees, deux facons de dire la meme chose : une duree ronde, ou une
-  // date. Elles s'excluent -- poser une date eteint les puces, cliquer une puce
-  // efface la date -- sinon deux reglages contradictoires resteraient allumes.
-  return `<div class="act-row act-dur"><span class="act-tag">durée</span>${chips}</div>
-    <div class="act-row act-dur"><span class="act-tag">jusqu'au</span>
-      <input type="date" class="dur-date" ${z} value="${esc(day)}"
-        min="${dayKey(Math.floor(Date.now() / 1000))}">
-      ${day ? `<button type="button" class="dur dur-clear" ${z}>effacer</button>` : ''}
-    </div>`;
+  // Le choix du MODE d'abord. Un seul controle est ensuite montre : c'est le
+  // seul moyen qu'« ou bien, ou bien » se lise sans avoir a l'expliquer.
+  const tabs = [['dur', 'durée'], ['date', "jusqu'au"]].map(([id, lbl]) =>
+    `<button type="button" class="dur dur-mode${id === mode ? ' on' : ''}"
+      data-mode="${id}" ${z} aria-pressed="${id === mode}">${lbl}</button>`).join('');
+
+  let body;
+  if (mode === 'dur') {
+    const cur = durPick.get(key) || DEFAULT_DUR;
+    body = DURATIONS.map((d) =>
+      `<button type="button" class="dur${d.id === cur ? ' on' : ''}" data-dur="${d.id}" ${z}
+        aria-pressed="${d.id === cur}">${esc(d.label)}</button>`).join('');
+  } else {
+    body = `<input type="date" class="dur-date" ${z} value="${esc(durDate.get(key) || '')}"
+      min="${dayKey(Math.floor(Date.now() / 1000))}">`;
+  }
+  return `<div class="act-row act-dur"><span class="act-tag">jusqu'à</span>${tabs}</div>
+    <div class="act-row act-dur"><span class="act-tag"></span>${body}</div>`;
 }
 
 // Un bouton d'action, arme ou visiblement desarme AVEC sa raison. Un bouton qui
@@ -2158,16 +2166,23 @@ function housePanel() {
     // Même découpage que sur un appareil : la durée d'un côté, la date de
     // l'autre. Ici la durée n'a qu'une valeur possible (« ce soir »), donc seule
     // la date a besoin d'une rangée — vide, l'absence vaut pour aujourd'hui.
-    : `<div class="act-row act-dur"><span class="act-tag">jusqu'au</span>
-         <input type="date" class="abs-date" data-for="absent"
-           value="${esc(absentDate || '')}" min="${tomorrowKey()}">
-         ${absentDate ? '<button type="button" class="dur abs-clear">effacer</button>' : ''}
-         <span class="act-fine">${absentDate ? '' : 'vide : aujourd’hui seulement'}</span>
+    // Même choix exclusif que sur un appareil : « aujourd'hui » OU « jusqu'au ».
+    // Un seul contrôle montré à la fois.
+    : `<div class="act-row act-dur"><span class="act-tag">jusqu'à</span>
+         <button type="button" class="dur dur-mode${absentDate === null ? ' on' : ''}"
+           data-abs-mode="jour" aria-pressed="${absentDate === null}">ce soir</button>
+         <button type="button" class="dur dur-mode${absentDate === null ? '' : ' on'}"
+           data-abs-mode="date" aria-pressed="${absentDate !== null}">jusqu'au</button>
        </div>
+       ${absentDate === null ? '' : `<div class="act-row act-dur"><span class="act-tag"></span>
+         <input type="date" class="abs-date" data-for="absent"
+           value="${esc(absentDate)}" min="${tomorrowKey()}">
+       </div>`}
        <div class="act-row">
          ${actBtn('Maison vide', absentDate
              ? { cmd: 'absent', value: 'on', until: absentDate }
-             : { cmd: 'absent', value: 'on' }, null, null, true)}
+             : { cmd: 'absent', value: 'on' }, null,
+             absentDate === '' ? 'choisir une date d’abord' : null, true)}
        </div>`));
 
   out.push(block('Théa', d.at_creche === true
@@ -2274,17 +2289,15 @@ function bindActions() {
     // redessine pour montrer ce que ce choix rend possible.
     const dur = ev.target.closest('button.dur');
     if (dur) {
-      if (dur.classList.contains('dur-clear')) {
-        durDate.delete(durKey(dur.dataset.zone, dur.dataset.kind));
+      if (dur.dataset.mode) {
+        durMode.set(durKey(dur.dataset.zone, dur.dataset.kind), dur.dataset.mode);
         renderActions();
         return;
       }
-      if (dur.classList.contains('abs-clear')) absentDate = null;
-      else {
-        const k = durKey(dur.dataset.zone, dur.dataset.kind);
-        durPick.set(k, dur.dataset.dur);
-        durDate.delete(k);   // les deux rangees s'excluent
+      if (dur.dataset.absMode) {
+        absentDate = dur.dataset.absMode === 'jour' ? null : (absentDate || '');
       }
+      else durPick.set(durKey(dur.dataset.zone, dur.dataset.kind), dur.dataset.dur);
       renderActions();
       return;
     }
