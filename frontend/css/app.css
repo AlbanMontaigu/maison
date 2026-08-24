@@ -453,8 +453,12 @@ button.act-quiet { color: var(--ink); background: var(--card-2); border-color: v
    sans rapport. */
 .act-dur + .act-dur { margin-top: .3rem; }
 .act-dur .act-fine { margin: 0; }
-/* Rangee de valeurs : alignee sous celle des onglets grace au libelle vide. */
-.act-dur .act-tag:empty { visibility: hidden; }
+/* Le champ date est une valeur parmi les termes : il s'aligne sur les puces et
+   se marque comme elles quand c'est LUI qui est retenu. */
+.dur-date.on, .abs-date.on { border-color: var(--ink); color: var(--ink); font-weight: 560; }
+/* Les valeurs sont en retrait sous leurs onglets : la hierarchie se voit sans
+   qu'on ait a lire les libelles. */
+.act-vals { margin-top: .3rem; padding-left: .9rem; }
 button.dur {
   min-height: 34px; padding: .3rem .55rem;
   font: inherit; font-size: .82rem;
