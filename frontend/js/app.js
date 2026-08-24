@@ -2135,11 +2135,14 @@ function kindBlock(kind, info, zoneName, absent) {
                      zoneName, whyOn, false));
   }
 
+  // Le VERBE d'abord, son complement ensuite : on dit « couper pendant 3 h »,
+  // pas « pendant 3 h, couper ». La duree qui precedait l'action obligeait a
+  // lire la phrase a l'envers pour savoir de quoi elle parlait.
   return `<div class="act-kind"><h4>${ui.label}</h4>
     ${state}
     ${release ? `<div class="act-row">${release}</div>` : ''}
-    ${durationRow(zoneName, kind)}
     <div class="act-row">${acts.join('')}</div>
+    ${durationRow(zoneName, kind)}
   </div>`;
 }
 
@@ -2195,17 +2198,17 @@ function housePanel() {
     // Meme vocabulaire que sur un appareil : des TERMES, pas des durees. Ici il
     // n'y a pas de « pendant » -- une absence se declare jusqu'a une date, pas
     // pour trois heures -- donc les termes sont proposes directement.
-    : `<div class="act-row act-dur"><span class="act-tag">jusqu'à</span>
-         <button type="button" class="dur${absentDate === null ? ' on' : ''}"
-           data-abs-mode="jour" aria-pressed="${absentDate === null}">ce soir</button>
-         <input type="date" class="abs-date${absentDate ? ' on' : ''}" data-for="absent"
-           value="${esc(absentDate || '')}" min="${tomorrowKey()}">
-       </div>
-       <div class="act-row">
+    : `<div class="act-row">
          ${actBtn('Maison vide', absentDate
              ? { cmd: 'absent', value: 'on', until: absentDate }
              : { cmd: 'absent', value: 'on' }, null,
              absentDate === '' ? 'choisir une date d’abord' : null, true)}
+       </div>
+       <div class="act-row act-dur act-vals"><span class="act-tag">jusqu'à</span>
+         <button type="button" class="dur${absentDate === null ? ' on' : ''}"
+           data-abs-mode="jour" aria-pressed="${absentDate === null}">ce soir</button>
+         <input type="date" class="abs-date${absentDate ? ' on' : ''}" data-for="absent"
+           value="${esc(absentDate || '')}" min="${tomorrowKey()}">
        </div>`));
 
   out.push(block('Théa', d.at_creche === true
