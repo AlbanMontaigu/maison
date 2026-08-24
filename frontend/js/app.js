@@ -938,10 +938,25 @@ function energyCurve(e) {
   const use = from ? pts.filter((p) => dayKey(p[0]) === from)
     : floor ? pts.filter((p) => p[0] >= floor) : pts;
 
-  if (use.length < 2) {
-    return `<div class="ecurve empty">${view === 'day'
-      ? "la courbe du jour arrive demain — Enedis publie la consommation en différé"
-      : 'pas encore assez de relevés pour tracer la courbe'}</div>`;
+  // Le COUT peut manquer sans que le reste manque. Aujourd'hui, Enedis n'a
+  // encore rien publie -- mais la temperature et l'activite des appareils sont
+  // la, relevees toutes les 10 min. Se taire entierement pour un seul des trois
+  // signaux revenait a cacher deux mesures disponibles.
+  const hasCost = use.length >= 2;
+  let t0, t1;
+  if (hasCost) {
+    t0 = use[0][0];
+    t1 = use[use.length - 1][0];
+  } else if (viewT.length >= 2) {
+    // Fenetre de la PAGE, bornee a maintenant : au-dela rien n'a encore eu
+    // lieu, et une piste vide s'y lirait « cet appareil n'a pas tourne ».
+    t0 = viewT[0];
+    t1 = viewT[viewNowIdx > 0 ? viewNowIdx : viewT.length - 1];
+  } else {
+    t0 = t1 = 0;
+  }
+  if (t1 <= t0) {
+    return `<div class="ecurve empty">pas encore assez de relevés</div>`;
   }
 
   // En euros par heure. C'est la MEME courbe que les kW a un facteur pres (le
@@ -954,23 +969,25 @@ function energyCurve(e) {
     tarif ? { minimumFractionDigits: 2, maximumFractionDigits: 2 } : { maximumFractionDigits: 2 }) + U;
 
   const W = 1000, H = 60;
-  const t0 = use[0][0], t1 = use[use.length - 1][0];
   const x = (ts) => (t1 === t0 ? W : ((ts - t0) / (t1 - t0)) * W);
 
-  const hi = Math.max(...use.map((p) => unit(p[1]))) || 1;
-  const y = (v) => H - (v / hi) * H;
-  let d = '', area = `M0,${H}L`;
-  use.forEach((p, k) => {
-    const pt = `${x(p[0]).toFixed(1)},${y(unit(p[1])).toFixed(1)}`;
-    d += (k ? 'L' : 'M') + pt;
-    area += (k ? 'L' : '') + pt;
-  });
-  area += `L${W},${H}Z`;
+  const hi = hasCost ? (Math.max(...use.map((p) => unit(p[1]))) || 1) : 0;
+  const y = (v) => H - (v / (hi || 1)) * H;
+  let d = '', area = '';
+  if (hasCost) {
+    area = `M0,${H}L`;
+    use.forEach((p, k) => {
+      const pt = `${x(p[0]).toFixed(1)},${y(unit(p[1])).toFixed(1)}`;
+      d += (k ? 'L' : 'M') + pt;
+      area += (k ? 'L' : '') + pt;
+    });
+    area += `L${W},${H}Z`;
+  }
 
   // Ordonnee : traits dans le SVG, chiffres en HTML par-dessus. Meme raison que
   // sur les courbes de piece -- le SVG est etire (preserveAspectRatio none) et
   // un <text> y serait comprime.
-  const ticks = niceTicks(0, hi).filter((v) => v > 0 && v <= hi);
+  const ticks = hasCost ? niceTicks(0, hi).filter((v) => v > 0 && v <= hi) : [];
   let grid = '', yLabels = '';
   ticks.forEach((v, k) => {
     grid += `<line x1="0" y1="${y(v).toFixed(1)}" x2="${W}" y2="${y(v).toFixed(1)}"`
@@ -1013,7 +1030,8 @@ function energyCurve(e) {
   }
 
   const devices = energyDevices(t0, t1);
-  ecurve = { use, oT, t0, t1, unit, fmt, devs: devices.devs, vlx: devices.vlx, ts };
+  ecurve = { use: hasCost ? use : null, oT, t0, t1, unit, fmt,
+             devs: devices.devs, vlx: devices.vlx, ts };
   const axis = energyMarks(t0, t1)
     .map(([pos, l]) => `<span style="left:${(pos * 100).toFixed(2)}%">${esc(l)}</span>`).join('');
 
@@ -1024,8 +1042,8 @@ function energyCurve(e) {
         <div class="eplot">
           <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
             ${grid}
-            <path d="${area}" fill="var(--sun-fill)"/>
-            <path d="${d}" fill="none" stroke="var(--sun)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+            ${area ? `<path d="${area}" fill="var(--sun-fill)"/>` : ''}
+            ${d ? `<path d="${d}" fill="none" stroke="var(--sun)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>` : ''}
             ${temp}
           </svg>
           <div class="ylab">${yLabels}</div>
@@ -1035,7 +1053,7 @@ function energyCurve(e) {
       <div class="ecurwrap"><div class="ecur" hidden></div></div>
       </div>
       <div class="erow2"><span class="elab"></span><div class="eaxis">${axis}</div></div>
-      <div class="eleg">pointe ${esc(fmt(hi))}${tempLbl ? ` · ${esc(tempLbl)}` : ''}${devices.velux ? ' · volets : hauteur = ouverture' : ''}</div>
+      <div class="eleg">${hasCost ? `pointe ${esc(fmt(hi))}` : 'coût du jour publié demain — Enedis diffère'}${tempLbl ? ` · ${esc(tempLbl)}` : ''}${devices.velux ? ' · volets : hauteur = ouverture' : ''}</div>
     </div>`;
 }
 
@@ -1720,7 +1738,11 @@ function bindEnergyTip() {
     const f = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
     const ts = ecurve.t0 + f * (ecurve.t1 - ecurve.t0);
 
-    const c = nearest(ecurve.use, ts);
+    // `use` est NULL quand le cout n'est pas encore publie : la bulle doit
+    // continuer a donner l'heure, le dehors et les appareils. Lire un point
+    // inexistant plantait le handler, et un handler mort emporte le curseur
+    // avec lui -- on perdait trois informations pour l'absence d'une seule.
+    const c = ecurve.use ? nearest(ecurve.use, ts) : null;
     const o = nearest(ecurve.oT, ts);
     // La temperature n'est montree que si elle est PROCHE dans le temps : au
     // bord d'une fenetre, le point le plus proche peut etre a des heures, et
@@ -1757,8 +1779,10 @@ function bindEnergyTip() {
         if (vs.length) onNow += `<br><span class="dim">volets :</span> ${esc(vs.join(', '))}`;
       }
     }
-    tip.innerHTML = `<b>${dayLabel(c[0])} ${hhmm(c[0])}</b><br>`
-      + `électricité : <b>${esc(ecurve.fmt(ecurve.unit(c[1])))}</b>`
+    const at = c ? c[0] : Math.round(ts);
+    tip.innerHTML = `<b>${dayLabel(at)} ${hhmm(at)}</b><br>`
+      + (c ? `électricité : <b>${esc(ecurve.fmt(ecurve.unit(c[1])))}</b>`
+           : '<span class="dim">coût pas encore publié</span>')
       + (oOk ? `<br>dehors : <b>${o[1].toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}°</b>` : '')
       + (o && !oOk ? '<br><span class="dim">pas de mesure du dehors ici</span>' : '')
       + onNow;
@@ -1766,7 +1790,7 @@ function bindEnergyTip() {
 
     const cur = block.querySelector('.ecur');
     if (cur) {
-      cur.style.left = `${((c[0] - ecurve.t0) / (ecurve.t1 - ecurve.t0) * 100).toFixed(2)}%`;
+      cur.style.left = `${((at - ecurve.t0) / (ecurve.t1 - ecurve.t0) * 100).toFixed(2)}%`;
       cur.hidden = false;
     }
     const w = tip.offsetWidth;
