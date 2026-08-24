@@ -126,6 +126,11 @@ body {
   font-size: .62rem; color: var(--ink-dim);
   background: var(--card); padding: 0 .2rem; border-radius: 3px;
 }
+/* Chaque echelle dans la couleur de SA courbe : deux ordonnees cote a cote sans
+   lien visible avec leur trait obligeraient a deviner laquelle va avec quoi. */
+.ecurve .ylab span.y-cost { color: var(--sun); }
+.ecurve .ylab span.y-temp { color: var(--neutral); }
+.ecurve .ylab-r span { left: auto; right: 0; }
 /* Une graduation peut tomber sur le bord du trace ; centree, la moitie de
    l'etiquette deborderait au-dessus du dessin. */
 .ecurve .ylab span.edge-top { transform: none; }

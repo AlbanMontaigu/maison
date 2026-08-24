@@ -987,18 +987,22 @@ function energyCurve(e) {
   // Ordonnee : traits dans le SVG, chiffres en HTML par-dessus. Meme raison que
   // sur les courbes de piece -- le SVG est etire (preserveAspectRatio none) et
   // un <text> y serait comprime.
+  // Etiquette d'ordonnee : chiffres en HTML par-dessus le SVG (celui-ci est
+  // etire, un <text> y serait comprime). L'unite une seule fois, sur la
+  // graduation du haut : la repeter n'apprend rien sur une bande de 62 px.
+  const yLab = (tk, pos, cls, unit) => tk.map((v, k) => {
+    const pct = (pos(v) / H) * 100;
+    return `<span class="${cls}${pct < 10 ? ' edge-top' : ''}" style="top:${pct.toFixed(2)}%">`
+      + `${v.toLocaleString('fr-FR')}${k === tk.length - 1 ? unit : ''}</span>`;
+  }).join('');
+  const gridFor = (tk, pos) => tk.map((v) =>
+    `<line x1="0" y1="${pos(v).toFixed(1)}" x2="${W}" y2="${pos(v).toFixed(1)}"`
+    + ` stroke="var(--line)" stroke-width="1" stroke-dasharray="2 4" opacity=".8"`
+    + ` vector-effect="non-scaling-stroke"/>`).join('');
+
   const ticks = hasCost ? niceTicks(0, hi).filter((v) => v > 0 && v <= hi) : [];
-  let grid = '', yLabels = '';
-  ticks.forEach((v, k) => {
-    grid += `<line x1="0" y1="${y(v).toFixed(1)}" x2="${W}" y2="${y(v).toFixed(1)}"`
-      + ` stroke="var(--line)" stroke-width="1" stroke-dasharray="2 4" opacity=".8"`
-      + ` vector-effect="non-scaling-stroke"/>`;
-    const pct = (y(v) / H) * 100;
-    // L'unite une seule fois, sur la graduation du haut : la repeter n'apprend
-    // rien sur une bande de 62 px.
-    yLabels += `<span class="${pct < 10 ? 'edge-top' : ''}" style="top:${pct.toFixed(2)}%">`
-      + `${v.toLocaleString('fr-FR')}${k === ticks.length - 1 ? U : ''}</span>`;
-  });
+  let grid = hasCost ? gridFor(ticks, y) : '';
+  const yLabels = hasCost ? yLab(ticks, y, 'y-cost', U) : '';
 
   // Temperature exterieure REELLE, sur la meme abscisse. Prise par HORODATAGE
   // et pas par index : les deux series n'ont ni le meme pas (10 min contre 30)
@@ -1010,7 +1014,7 @@ function energyCurve(e) {
     if (oa[i] == null || ts[i] < t0 || ts[i] > t1) continue;
     oT.push([ts[i], oa[i]]);
   }
-  let temp = '', tempLbl = '', yT = null;
+  let temp = '', tempLbl = '', yT = null, yLabelsR = '';
   if (oT.length >= 2) {
     const lo = Math.min(...oT.map((q) => q[1])), hiT = Math.max(...oT.map((q) => q[1]));
     // Bande de 6 °C au minimum : sur une nuit calme l'ecart reel peut etre de
@@ -1019,6 +1023,16 @@ function energyCurve(e) {
     const span = Math.max(6, hiT - lo);
     const mid = (lo + hiT) / 2;
     yT = (v) => H - ((v - (mid - span / 2)) / span) * H;
+    // Une echelle a DROITE, dans la couleur du trait. Sans elle la temperature
+    // flottait sans repere -- et sur la journee en cours, ou le cout n'est pas
+    // encore publie, elle etait la SEULE courbe du dessin sans aucune ordonnee.
+    const tTicks = niceTicks(mid - span / 2, mid + span / 2)
+      .filter((v) => v >= mid - span / 2 && v <= mid + span / 2);
+    yLabelsR = yLab(tTicks, yT, 'y-temp', '°');
+    // La grille appartient a UNE echelle : deux jeux de traits horizontaux se
+    // lisent comme un quadrillage sans signification. Le cout la prend quand il
+    // existe ; sinon elle revient a la temperature, seule courbe restante.
+    if (!hasCost) grid = gridFor(tTicks, yT);
     temp = '<path d="' + oT.map((q, k) =>
       (k ? 'L' : 'M') + `${x(q[0]).toFixed(1)},${yT(q[1]).toFixed(1)}`).join('')
       + '" fill="none" stroke="var(--neutral)" stroke-width="1.4" stroke-dasharray="4 3"'
@@ -1032,8 +1046,18 @@ function energyCurve(e) {
   const devices = energyDevices(t0, t1);
   ecurve = { use: hasCost ? use : null, oT, t0, t1, unit, fmt,
              devs: devices.devs, vlx: devices.vlx, ts };
-  const axis = energyMarks(t0, t1)
+  // Abscisse : les etiquettes flottaient sans rien pour les rattacher au
+  // dessin. Une ligne de base et un repere sous chacune disent OU tombe l'heure.
+  const marks = energyMarks(t0, t1);
+  const axis = marks
     .map(([pos, l]) => `<span style="left:${(pos * 100).toFixed(2)}%">${esc(l)}</span>`).join('');
+  const xTicks = `<line x1="0" y1="${H}" x2="${W}" y2="${H}" stroke="var(--line)"`
+    + ` stroke-width="1" vector-effect="non-scaling-stroke"/>`
+    + marks.map(([pos]) => {
+      const px = (pos * W).toFixed(1);
+      return `<line x1="${px}" y1="${H - 3}" x2="${px}" y2="${H}" stroke="var(--ink-dim)"`
+        + ` stroke-width="1" opacity=".55" vector-effect="non-scaling-stroke"/>`;
+    }).join('');
 
   return `<div class="ecurve">
       <div class="estack">
@@ -1045,8 +1069,10 @@ function energyCurve(e) {
             ${area ? `<path d="${area}" fill="var(--sun-fill)"/>` : ''}
             ${d ? `<path d="${d}" fill="none" stroke="var(--sun)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>` : ''}
             ${temp}
+            ${xTicks}
           </svg>
           <div class="ylab">${yLabels}</div>
+          <div class="ylab ylab-r">${yLabelsR}</div>
         </div>
       </div>
       ${devices.html}
