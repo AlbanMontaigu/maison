@@ -1949,8 +1949,12 @@ function kindBlock(kind, info, zoneName, absent) {
   }
   const z = `data-zone="${esc(zoneName)}"`;
   if (info.off) {
+    // La date vient de l'appareil, pas de la fenetre du fichier : depuis le
+    // 23/08 chaque coupure porte la sienne, et lire la globale affichait
+    // « jusqu'au 23/08 » sur une consigne qui courait au 24.
+    const quand = info.until ? ` jusqu'au ${esc(frDate(info.until))} inclus` : " pour aujourd'hui";
     return `<div class="act-kind"><h4>${ui.label}</h4>
-      <p class="act-state">${ui.cutState}.</p>
+      <p class="act-state">${ui.cutState}${quand}.</p>
       <div class="act-row">
         <button type="button" class="act" data-cmd="${esc(info.verb)}" data-value="on" ${z}>${ui.back}</button>
       </div>
@@ -1977,17 +1981,14 @@ function zonePanel(zoneName) {
   const absent = !!(ctl.directives || {}).absent;
   const blocks = KIND_ORDER.filter((k) => kinds[k])
     .map((k) => kindBlock(k, kinds[k], zoneName, absent)).join('');
-  // `until` est GLOBAL a l'override : il peut venir d'une consigne posee sur une
-  // AUTRE piece. L'annoncer ici sans verifier qu'il se passe quelque chose dans
-  // celle-ci affichait « une consigne court jusqu'au 23/08 » sur une piece qui
-  // n'en a aucune -- et chassait au passage l'avertissement sur minuit.
-  const until = (ctl.directives || {}).until;
-  const somethingOff = Object.values(kinds).some((k) => k.off);
-  return blocks + (until && somethingOff
-    ? `<p class="act-fine">La consigne de cette pièce court jusqu'au ${esc(frDate(until))} inclus.</p>`
-    : `<p class="act-fine">« Ce soir » expire à minuit, et le moteur peut
-       reprendre entre minuit et 5 h du matin. Pour couvrir la nuit, choisir
-       « cette nuit ».</p>`);
+  // Plus de phrase d'echeance ici : chaque appareil porte la sienne, juste
+  // au-dessus de ses boutons. Reprendre une date au pied du panneau obligerait
+  // a choisir LAQUELLE quand deux appareils sont coupes a des dates
+  // differentes -- et la fenetre globale du fichier, qui servait a ca, ne
+  // gouverne plus les coupures par zone.
+  return blocks + `<p class="act-fine">« Ce soir » expire à minuit, et le moteur
+     peut reprendre entre minuit et 5 h du matin. Pour couvrir la nuit, choisir
+     « cette nuit ».</p>`;
 }
 
 function housePanel() {
