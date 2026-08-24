@@ -841,6 +841,7 @@ function energyDevices(t0, t1) {
   const step = ts.length > 1 ? (ts[1] - ts[0]) : 600;
   const rows = [];
   const devs = [];
+  const vlx = [];
   let velux = false;
 
   for (const z of payload.zones || []) {
@@ -906,9 +907,15 @@ function energyDevices(t0, t1) {
       else if (v !== runVal) { flush(ts[i]); runFrom = ts[i]; runVal = v; }
     }
     flush(ts[ts.length - 1] + step);
-    if (any) { rows.push(deviceRow(`volet ${z.name}`, rects)); velux = true; }
+    if (any) {
+      rows.push(deviceRow(`volet ${z.name}`, rects));
+      // Le nom de la piece SEUL : la bulle les regroupe sous « volets : », et
+      // repeter le mot a chaque entree la remplirait de bruit.
+      vlx.push({ name: z.name, ser });
+      velux = true;
+    }
   }
-  return { html: rows.join(''), velux, devs };
+  return { html: rows.join(''), velux, devs, vlx };
 }
 
 function deviceRow(name, rects) {
@@ -1006,7 +1013,7 @@ function energyCurve(e) {
   }
 
   const devices = energyDevices(t0, t1);
-  ecurve = { use, oT, t0, t1, unit, fmt, devs: devices.devs, ts };
+  ecurve = { use, oT, t0, t1, unit, fmt, devs: devices.devs, vlx: devices.vlx, ts };
   const axis = energyMarks(t0, t1)
     .map(([pos, l]) => `<span style="left:${(pos * 100).toFixed(2)}%">${esc(l)}</span>`).join('');
 
@@ -1736,6 +1743,18 @@ function bindEnergyTip() {
         onNow = names.length
           ? `<br><span class="dim">en marche :</span> ${esc(names.join(', '))}`
           : '<br><span class="dim">aucun appareil en marche</span>';
+        // Les volets sur UNE ligne, pas une par volet : ils ne consomment rien,
+        // et deux lignes de plus a chaque survol pousseraient hors de l'ecran la
+        // seule chose qu'on est venu lire. Une position absente est passee sous
+        // silence -- « pas de mesure » n'est pas « ferme ».
+        const vs = (ecurve.vlx || [])
+          .filter((v) => v.ser[bi] != null)
+          // Parentheses et pas un espace : « Salle de Bains 1 » finit par un
+          // chiffre, et « Salle de Bains 1 0 % » se lit 10 %. Un nom de piece
+          // peut toujours finir par un nombre -- la separation doit tenir sans
+          // dependre de la piece.
+          .map((v) => `${v.name} (${v.ser[bi]} %)`);
+        if (vs.length) onNow += `<br><span class="dim">volets :</span> ${esc(vs.join(', '))}`;
       }
     }
     tip.innerHTML = `<b>${dayLabel(c[0])} ${hhmm(c[0])}</b><br>`
