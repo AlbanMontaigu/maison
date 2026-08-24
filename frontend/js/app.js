@@ -920,7 +920,14 @@ function energyCurve(e) {
   ecurve = null;
   const pts = (e.series || []).filter((p) => Array.isArray(p) && p.length === 2);
   const from = view !== 'week' && viewT.length ? dayKey(viewT[viewT.length - 1]) : null;
-  const use = from ? pts.filter((p) => dayKey(p[0]) === from) : pts;
+  // Sur 7 j, la courbe est BORNEE a la fenetre de la page. La courbe de charge
+  // en garde 8 : les tracer tels quels donnait un premier cinquieme sans aucune
+  // piste d'appareil en face -- ce qui se lit « rien n'a tourne ce jour-la »,
+  // alors que c'est la page qui ne connait pas ce jour. Et un bloc annonce
+  // « 7 j » qui en montre 8 est faux, meme si personne ne compte les jours.
+  const floor = view === 'week' && (payload.t || []).length ? payload.t[0] : null;
+  const use = from ? pts.filter((p) => dayKey(p[0]) === from)
+    : floor ? pts.filter((p) => p[0] >= floor) : pts;
 
   if (use.length < 2) {
     return `<div class="ecurve empty">${view === 'day'
