@@ -840,6 +840,7 @@ function energyDevices(t0, t1) {
   // marche encore en cours au dernier releve serait dessinee comme un trait.
   const step = ts.length > 1 ? (ts[1] - ts[0]) : 600;
   const rows = [];
+  const devs = [];
   let velux = false;
 
   for (const z of payload.zones || []) {
@@ -872,6 +873,7 @@ function energyDevices(t0, t1) {
       }
       if (!any) continue;
       rows.push(deviceRow(`${label} ${z.name}`, rects));
+      devs.push({ name: `${label} ${z.name}`, ser });
     }
   }
 
@@ -906,7 +908,7 @@ function energyDevices(t0, t1) {
     flush(ts[ts.length - 1] + step);
     if (any) { rows.push(deviceRow(`volet ${z.name}`, rects)); velux = true; }
   }
-  return { html: rows.join(''), velux };
+  return { html: rows.join(''), velux, devs };
 }
 
 function deviceRow(name, rects) {
@@ -1003,13 +1005,13 @@ function energyCurve(e) {
     tempLbl = `dehors ${deg(lo)}–${deg(hiT)}°`;
   }
 
-  ecurve = { use, oT, t0, t1, unit, fmt };
-
   const devices = energyDevices(t0, t1);
+  ecurve = { use, oT, t0, t1, unit, fmt, devs: devices.devs, ts };
   const axis = energyMarks(t0, t1)
     .map(([pos, l]) => `<span style="left:${(pos * 100).toFixed(2)}%">${esc(l)}</span>`).join('');
 
   return `<div class="ecurve">
+      <div class="estack">
       <div class="erow2">
         <span class="elab"></span>
         <div class="eplot">
@@ -1020,10 +1022,11 @@ function energyCurve(e) {
             ${temp}
           </svg>
           <div class="ylab">${yLabels}</div>
-          <div class="ecur" hidden></div>
         </div>
       </div>
       ${devices.html}
+      <div class="ecurwrap"><div class="ecur" hidden></div></div>
+      </div>
       <div class="erow2"><span class="elab"></span><div class="eaxis">${axis}</div></div>
       <div class="eleg">pointe ${esc(fmt(hi))}${tempLbl ? ` · ${esc(tempLbl)}` : ''}${devices.velux ? ' · volets : hauteur = ouverture' : ''}</div>
     </div>`;
@@ -1699,7 +1702,12 @@ function bindEnergyTip() {
   const tip = $('tip');
   const host = $('banners');
   host.addEventListener('pointermove', (ev) => {
-    const plot = ev.target.closest('.eplot');
+    // On ecoute sur tout le bloc, pas seulement sur le trace : les pistes
+    // d'appareils sont precisement l'endroit ou l'on veut lire « a cet instant,
+    // qu'est-ce qui tournait ». La geometrie reste celle du trace, qui a la
+    // meme largeur que les pistes (meme gouttiere).
+    const block = ev.target.closest('.ecurve');
+    const plot = block && block.querySelector('.eplot');
     if (!plot || !ecurve) { tip.hidden = true; return; }
     const r = plot.getBoundingClientRect();
     const f = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
@@ -1711,13 +1719,33 @@ function bindEnergyTip() {
     // bord d'une fenetre, le point le plus proche peut etre a des heures, et
     // l'afficher sous le curseur en ferait une mesure de cet instant.
     const oOk = o && Math.abs(o[0] - ts) <= 1800;
+    // Quels appareils tournaient a cet instant. Le rang est cherche dans l'axe
+    // des ticks du moteur, JAMAIS dans celui de la courbe de charge : ils n'ont
+    // pas le meme pas. Seuls les consommateurs sont listes -- l'ouverture d'un
+    // volet se lit deja a la hauteur de sa barre, et neuf lignes de bulle a
+    // chaque survol la rendraient illisible.
+    let onNow = '';
+    if (ecurve.devs && ecurve.devs.length && ecurve.ts && ecurve.ts.length) {
+      let bi = 0, bd = Infinity;
+      for (let i = 0; i < ecurve.ts.length; i++) {
+        const dd = Math.abs(ecurve.ts[i] - ts);
+        if (dd < bd) { bd = dd; bi = i; }
+      }
+      if (bd <= 900) {
+        const names = ecurve.devs.filter((dv) => dv.ser[bi]).map((dv) => dv.name);
+        onNow = names.length
+          ? `<br><span class="dim">en marche :</span> ${esc(names.join(', '))}`
+          : '<br><span class="dim">aucun appareil en marche</span>';
+      }
+    }
     tip.innerHTML = `<b>${dayLabel(c[0])} ${hhmm(c[0])}</b><br>`
       + `électricité : <b>${esc(ecurve.fmt(ecurve.unit(c[1])))}</b>`
       + (oOk ? `<br>dehors : <b>${o[1].toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}°</b>` : '')
-      + (o && !oOk ? '<br><span class="dim">pas de mesure du dehors ici</span>' : '');
+      + (o && !oOk ? '<br><span class="dim">pas de mesure du dehors ici</span>' : '')
+      + onNow;
     tip.hidden = false;
 
-    const cur = plot.querySelector('.ecur');
+    const cur = block.querySelector('.ecur');
     if (cur) {
       cur.style.left = `${((c[0] - ecurve.t0) / (ecurve.t1 - ecurve.t0) * 100).toFixed(2)}%`;
       cur.hidden = false;

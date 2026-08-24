@@ -90,10 +90,21 @@ body {
 /* Gouttiere a gauche : le trace, les pistes d'appareils et l'axe partagent la
    MEME abscisse. Sans cette colonne, poser un libelle a cote d'une piste la
    decalerait du trait qu'elle est censee expliquer. */
-.erow2 { display: flex; align-items: center; gap: .45rem; }
+.ecurve { --egut: 6.5rem; --egap: .45rem; }
+.erow2 { display: flex; align-items: center; gap: var(--egap); }
+/* Le curseur traverse le trace ET les pistes : c'est la meme abscisse, et
+   s'arreter au trait obligerait a lire les appareils de memoire. La gouttiere
+   est reprise depuis les MEMES variables que le libelle, sinon les deux
+   derivent au premier ajustement. */
+.estack { position: relative; }
+.ecurwrap {
+  position: absolute; top: 0; bottom: 0;
+  left: calc(var(--egut) + var(--egap)); right: 0;
+  pointer-events: none;
+}
 .erow2 + .erow2 { margin-top: 3px; }
 .elab {
-  flex: 0 0 6.5rem; font-size: .68rem; line-height: 1.2; color: var(--ink-dim);
+  flex: 0 0 var(--egut); font-size: .68rem; line-height: 1.2; color: var(--ink-dim);
   text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .erow2 .eplot, .erow2 .eaxis, .estrip { flex: 1 1 auto; min-width: 0; }
