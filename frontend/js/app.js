@@ -1426,6 +1426,10 @@ function render() {
 
   renderActions();
 
+  // Apres les cartes : la synthese des fenetres closes lit `frames`, qui vient
+  // d'etre rempli par le rendu des zones.
+  $('synth').innerHTML = synthText();
+
   $('help-body').innerHTML = helpHtml();
 
   $('foot-meta').textContent =
@@ -1438,6 +1442,59 @@ function render() {
 // codes that actually occur in the current window, with the engine's own emoji
 // and wording. A hand-written list would drift the day an action is added --
 // and would name actions this house never takes.
+// L'etat de la maison en une ligne, a la place de l'intro qui redisait ce que la
+// page est. Repondre a « comment va la maison ? » demandait de parcourir les six
+// cartes ; c'est le premier travail d'un en-tete.
+//
+// Deux phrases distinctes, parce que deux fenetres posent deux questions. Sur
+// « aujourd'hui » c'est l'instant ; sur une fenetre CLOSE, dire « 3 pieces trop
+// chaudes » reviendrait a dater de maintenant une information sur avant -- le
+// meme piege que le grand chiffre des cartes.
+function synthText() {
+  const zs = payload.zones || [];
+  if (!zs.length) return '';
+
+  if (!isRetro()) {
+    let n = 0, hot = 0, cold = 0, ac = 0, fan = 0;
+    for (const z of zs) {
+      const c = z.current || {}, b = c.band || {};
+      if (c.T != null && b.min != null && b.max != null) {
+        n++;
+        if (c.T > b.max) hot++;
+        else if (c.T < b.min) cold++;
+      }
+      if (c.ac && c.ac.on) ac++;
+      if (c.fan && c.fan.on) fan++;
+    }
+    if (!n) return 'aucune mesure pour l’instant';
+    const out = hot + cold;
+    const etat = out === 0
+      ? `les ${n} pièces sont dans leur objectif`
+      : `<b>${out} pièce${out > 1 ? 's' : ''} sur ${n}</b> hors de l’objectif`
+        + (hot && !cold ? ' (trop chaud)' : cold && !hot ? ' (trop froid)' : '');
+    const marche = [ac && `clim dans ${ac}`, fan && `ventilo dans ${fan}`].filter(Boolean);
+    return `${etat} · ${marche.length ? marche.join(', ') : 'rien en marche'}`;
+  }
+
+  // Fenetre close : une part de temps, calculee sur les series DEJA TRACEES --
+  // aucun chiffre de l'en-tete ne peut donc contredire les courbes du dessous.
+  let out = 0, tot = 0;
+  for (const f of frames.values()) {
+    for (let i = 0; i < f.T.length; i++) {
+      const v = f.T[i];
+      if (v == null) continue;
+      tot++;
+      if ((f.bmax[i] != null && v > f.bmax[i]) || (f.bmin[i] != null && v < f.bmin[i])) out++;
+    }
+  }
+  if (!tot) return '';
+  const pct = Math.round((out / tot) * 100);
+  const quand = view === 'yesterday' ? 'hier' : `sur ${payload.window_days} jours`;
+  return pct === 0
+    ? `${quand}, tout est resté dans l’objectif`
+    : `${quand}, <b>${pct} %</b> du temps hors de l’objectif, toutes pièces confondues`;
+}
+
 function helpHtml() {
   // Keyed by what the reader sees, not by the action code: several codes share
   // one wording (IDLE and VELUX_HOLD are both "ok"), and they draw the same

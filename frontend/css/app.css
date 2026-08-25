@@ -50,14 +50,31 @@ body {
   -webkit-text-size-adjust: 100%;
 }
 
+/* L'en-tete porte l'identite ET l'etat : « comment va la maison » doit se lire
+   ici, pas au terme d'un parcours des six cartes. Il reste collant, donc la
+   reponse suit le regard pendant qu'on fait defiler. */
 .top {
-  display: flex; align-items: baseline; justify-content: space-between;
-  gap: .5rem; flex-wrap: wrap;
-  padding: 1rem .25rem .75rem;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .75rem 1rem; flex-wrap: wrap;
+  padding: .8rem .9rem;
+  margin-bottom: .75rem;
   position: sticky; top: 0; z-index: 5;
-  background: linear-gradient(var(--bg) 78%, transparent);
+  border: 1px solid var(--edge); border-radius: 14px;
+  /* Un degrade tres doux plutot qu'un aplat : l'en-tete se detache des cartes
+     sans devenir une carte de plus. Opaque, parce qu'il est collant -- le
+     contenu passerait derriere un fond translucide. */
+  background: linear-gradient(180deg, #ffffff, #f7f9fc);
+  box-shadow: 0 1px 2px rgba(22, 32, 46, .06);
 }
-.top h1 { margin: 0; font-size: 1.2rem; font-weight: 680; letter-spacing: .01em; }
+.top-id { min-width: 0; }
+.top h1 {
+  margin: 0; font-size: 1.35rem; font-weight: 700; letter-spacing: -.01em;
+  line-height: 1.1;
+}
+/* La synthese : la ligne la plus lue de la page, donc lisible -- pas une
+   legende grise de plus. Les chiffres qui comptent sont en gras dans le texte. */
+.synth { margin: .15rem 0 0; font-size: .88rem; color: var(--ink-dim); }
+.synth b { color: var(--ink); font-weight: 620; }
 .top-meta { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
 
 .pill {
@@ -73,9 +90,7 @@ body {
    charts (viewBox 1000 wide) would impose their intrinsic width on the card and
    push the whole page into horizontal overflow -- on a phone the temperature
    ended up cut off the right edge. Same reason for min-width:0 on the card. */
-.intro {
-  margin: 0 .25rem .8rem; font-size: .84rem; color: var(--ink-dim); max-width: 46rem;
-}
+
 
 /* Bloc électricité : niveau MAISON, donc au-dessus des cartes de zone et pas
    dedans — le Linky compte tout le compteur, pas une pièce. */
