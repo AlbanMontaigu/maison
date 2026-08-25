@@ -1325,7 +1325,7 @@ function forecastAt(ts, times, values) {
 // Series PREVUES, tenues a part des mesurees et jamais fusionnees avec elles :
 // c'est ce qui permet de les dessiner autrement, et d'etre sur qu'on ne fera
 // jamais une moyenne ou un « hors objectif » sur de la prevision.
-function forecastArrays(zoneName, tl, nowIdx, outMeasured) {
+function forecastArrays(zoneName, tl, nowIdx) {
   const fc = payload.forecast;
   const empty = { out: [], solar: [], past: [] };
   // La comparaison prevu/mesure vaut pour toute journee dont on a l'archive --
@@ -1340,44 +1340,22 @@ function forecastArrays(zoneName, tl, nowIdx, outMeasured) {
   const solar = new Array(tl.length).fill(null);
   const past = new Array(tl.length).fill(null);
   if (issued) {
-    // Toute la fenetre, pas seulement jusqu'au marqueur : sur une journee
-    // close il n'y a pas de marqueur, et sur la journee en cours le trace du
-    // futur prend le relais avec la prevision la plus recente.
-    const upTo = nowIdx >= 0 ? Math.min(nowIdx, tl.length - 1) : tl.length - 1;
-    for (let i = 0; i <= upTo; i++) {
+    // Toute la fenetre, y compris apres le marqueur : l'archive couvre la
+    // journee entiere (pas de filtre ts <= now cote export), donc rien
+    // n'empeche le pointille de rester continu jusqu'au bout. Le trace du
+    // futur (plus bas) se pose PAR-DESSUS des qu'il a une prevision plus
+    // fraiche -- avant ca, la prevision archivee reste le meilleur "prevu"
+    // qu'on ait, et elle ne doit rien devoir a ce que la mesure a fait
+    // entre-temps : c'est une prevision, pas une correction a la mesure.
+    for (let i = 0; i < tl.length; i++) {
       const v = forecastAt(tl[i], issued.t, issued.outdoor);
       if (v != null) past[i] = Math.round(v * 10) / 10;
     }
   }
   if (nowIdx < 0 || view !== 'day') return { out, solar, past, issuedAt: issued && issued.issued_at };
   const solarSrc = (fc.solar || {})[zoneName];
-  // Le capteur exterieur n'a pas toujours rapporte jusqu'a `nowIdx` (son
-  // propre pas d'echantillonnage) : demarrer la prevision APRES la derniere
-  // mesure reelle, plutot qu'au marqueur "maintenant", recolle le pointille
-  // au trait plein sans laisser le trou intermediaire ou ni l'un ni l'autre
-  // n'etait dessine.
-  let fcStart = nowIdx, anchorTs = null, anchorVal = null;
-  if (outMeasured) {
-    for (let i = nowIdx; i >= 0; i--) {
-      if (outMeasured[i] != null) { fcStart = i; anchorTs = tl[i]; anchorVal = outMeasured[i]; break; }
-    }
-  }
-  // La prevision ne commence qu'a la prochaine heure pleine (voir
-  // forecast_rest_of_day, ts <= now exclu), donc entre l'ancre et fc.t[0] il
-  // n'y a AUCUN point prevu -- forecastAt y rend null. Y sauter directement a
-  // la valeur prevue ferait un a-pic la ou la mesure s'arrete, puisque rien ne
-  // garantit que le dernier releve et la prochaine heure prevue se valent.
-  // On interpole donc depuis l'ancre : le pointille part du meme point que le
-  // trait plein et rejoint la prevision sans a-coup.
-  const bridgeEnd = fc.t && fc.t.length && fc.outdoor[0] != null ? fc.t[0] : null;
-  for (let i = fcStart; i < tl.length; i++) {
-    let v;
-    if (anchorVal != null && bridgeEnd != null && tl[i] < bridgeEnd) {
-      const span = bridgeEnd - anchorTs;
-      v = span > 0 ? anchorVal + (fc.outdoor[0] - anchorVal) * ((tl[i] - anchorTs) / span) : anchorVal;
-    } else {
-      v = forecastAt(tl[i], fc.t, fc.outdoor);
-    }
+  for (let i = nowIdx; i < tl.length; i++) {
+    const v = forecastAt(tl[i], fc.t, fc.outdoor);
     if (v != null) out[i] = Math.round(v * 10) / 10;
     if (solarSrc) {
       const sv = forecastAt(tl[i], fc.t, solarSrc);
@@ -1406,10 +1384,9 @@ function frameFor(zone, n, v) {
   const ser = zone.series || {};
   const pad = (arr) => [...Array(v.padStart).fill(null), ...arr, ...Array(v.padEnd).fill(null)];
   const cut = (rleArr) => pad(expand(rleArr || [], n).slice(v.i0, v.i1));
-  const out = pad((payload.outdoor?.T || []).slice(v.i0, v.i1));
   return {
     T: pad((ser.T || []).slice(v.i0, v.i1)),
-    out,
+    out: pad((payload.outdoor?.T || []).slice(v.i0, v.i1)),
     solar: cut(ser.solar),
     bmin: cut(ser.bmin), bmax: cut(ser.bmax),
     act: pad(expand(zone.runs || [], n).slice(v.i0, v.i1)),
@@ -1421,7 +1398,7 @@ function frameFor(zone, n, v) {
     // « donnee absente » au lieu de se dessiner vide.
     has: { occ: 'occ' in ser, ac: 'ac' in ser, fan: 'fan' in ser, velux: 'velux' in ser,
            solar: 'solar' in ser },
-    fc: forecastArrays(zone.name, v.t, v.nowIdx, out),
+    fc: forecastArrays(zone.name, v.t, v.nowIdx),
     // Tenu a part de `occ` : les agregats (temps d'occupation, page par piece)
     // se calculent sur le VECU. Les fusionner ferait compter des heures qui
     // n'ont pas encore eu lieu.
