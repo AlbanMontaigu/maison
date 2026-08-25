@@ -1309,18 +1309,9 @@ function viewMarks(t) {
 // La prevision est horaire, la grille du dashboard est a 10 min : sans
 // interpolation la courbe serait un escalier, qu'on lirait comme des paliers
 // reels alors que ce n'est qu'un pas d'echantillonnage.
-// Le back-end n'emet la prevision QUE pour les heures strictement futures
-// (comfort-dashboard-export.py exclut ts <= now) : la premiere heure pleine
-// disponible est donc toujours un peu apres "maintenant", jamais "maintenant"
-// lui-meme. Sans ce plafonnement aux bornes, ce trou se lisait sur la courbe --
-// plus de mesure, pas encore de prevision. Le plafonnement etend la valeur de
-// bord (plate) jusqu'a la premiere/derniere heure connue plutot que de rendre
-// null, ce qui recolle le pointille au trait mesure au lieu de le faire partir
-// d'on ne sait ou une heure plus tard.
 function forecastAt(ts, times, values) {
   if (!times || !times.length) return null;
-  if (ts <= times[0]) return values[0] ?? null;
-  if (ts >= times[times.length - 1]) return values[times.length - 1] ?? null;
+  if (ts < times[0] || ts > times[times.length - 1]) return null;
   for (let i = 1; i < times.length; i++) {
     if (ts > times[i]) continue;
     const a = values[i - 1], b = values[i];
@@ -1365,14 +1356,28 @@ function forecastArrays(zoneName, tl, nowIdx, outMeasured) {
   // mesure reelle, plutot qu'au marqueur "maintenant", recolle le pointille
   // au trait plein sans laisser le trou intermediaire ou ni l'un ni l'autre
   // n'etait dessine.
-  let fcStart = nowIdx;
+  let fcStart = nowIdx, anchorTs = null, anchorVal = null;
   if (outMeasured) {
     for (let i = nowIdx; i >= 0; i--) {
-      if (outMeasured[i] != null) { fcStart = i; break; }
+      if (outMeasured[i] != null) { fcStart = i; anchorTs = tl[i]; anchorVal = outMeasured[i]; break; }
     }
   }
+  // La prevision ne commence qu'a la prochaine heure pleine (voir
+  // forecast_rest_of_day, ts <= now exclu), donc entre l'ancre et fc.t[0] il
+  // n'y a AUCUN point prevu -- forecastAt y rend null. Y sauter directement a
+  // la valeur prevue ferait un a-pic la ou la mesure s'arrete, puisque rien ne
+  // garantit que le dernier releve et la prochaine heure prevue se valent.
+  // On interpole donc depuis l'ancre : le pointille part du meme point que le
+  // trait plein et rejoint la prevision sans a-coup.
+  const bridgeEnd = fc.t && fc.t.length && fc.outdoor[0] != null ? fc.t[0] : null;
   for (let i = fcStart; i < tl.length; i++) {
-    const v = forecastAt(tl[i], fc.t, fc.outdoor);
+    let v;
+    if (anchorVal != null && bridgeEnd != null && tl[i] < bridgeEnd) {
+      const span = bridgeEnd - anchorTs;
+      v = span > 0 ? anchorVal + (fc.outdoor[0] - anchorVal) * ((tl[i] - anchorTs) / span) : anchorVal;
+    } else {
+      v = forecastAt(tl[i], fc.t, fc.outdoor);
+    }
     if (v != null) out[i] = Math.round(v * 10) / 10;
     if (solarSrc) {
       const sv = forecastAt(tl[i], fc.t, solarSrc);
