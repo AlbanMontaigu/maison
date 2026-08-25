@@ -200,6 +200,13 @@ body {
   margin-top: .1rem; text-align: right;
   font-size: .66rem; color: var(--ink-dim);
 }
+/* Pastille de legende des barres de comptage. Meme opacite que les barres
+   elles-memes, sinon la legende annonce une couleur plus franche que ce que le
+   dessin porte, et on cherche une barre qui n'existe pas. */
+.ecurve .ekey {
+  display: inline-block; width: 7px; height: 7px; border-radius: 2px;
+  margin: 0 .15em 0 .45em; opacity: .45;
+}
 .ecurve.empty {
   font-size: .76rem; color: var(--ink-dim);
   border-top: 1px dashed var(--edge); padding-top: .5rem;

@@ -946,6 +946,35 @@ function deviceRow(name, rects) {
     </div>`;
 }
 
+// Combien d'appareils tournent EN MEME TEMPS, la clim d'un cote, le ventilo de
+// l'autre. Les pistes du dessous disent QUI tourne, une ligne par piece ; elles
+// ne disent pas COMBIEN a la fois -- il faudrait compter des barres a l'oeil sur
+// autant de lignes. Or c'est ce nombre-la qui explique la courbe de cout juste
+// au-dessus, donc il vit sur SON dessin plutot que sur une ligne de plus.
+function deviceCounts(t0, t1) {
+  const ts = payload.t || [];
+  const ac = new Array(ts.length).fill(0);
+  const fan = new Array(ts.length).fill(0);
+  for (const z of payload.zones || []) {
+    // Meme piege que dans energyDevices : `ac`/`fan` sont run-length encodes,
+    // les indexer sans expand() ne trouve jamais rien.
+    for (const [kind, arr] of [['ac', ac], ['fan', fan]]) {
+      const raw = (z.series || {})[kind];
+      if (!raw || !raw.length) continue;
+      const ser = expand(raw, ts.length);
+      for (let i = 0; i < ts.length; i++) if (ser[i]) arr[i]++;
+    }
+  }
+  // Le maximum se prend sur la FENETRE affichee, pas sur tout le payload : sur
+  // « aujourd'hui », une pointe d'hier ecraserait l'echelle du jour.
+  let max = 0;
+  for (let i = 0; i < ts.length; i++) {
+    if (ts[i] < t0 || ts[i] > t1) continue;
+    max = Math.max(max, ac[i], fan[i]);
+  }
+  return { ac, fan, ts, max };
+}
+
 function energyCurve(e) {
   ecurve = null;
   const pts = (e.series || []).filter((p) => Array.isArray(p) && p.length === 2);
@@ -1069,6 +1098,51 @@ function energyCurve(e) {
   }
 
   const devices = energyDevices(t0, t1);
+
+  // Le comptage des appareils, en barres au PIED de la courbe de cout : c'est
+  // lui qui l'explique. Dessine avant le trait du cout, donc derriere -- un fond
+  // de contexte, pas une troisieme courbe qui lui disputerait la lecture. Il ne
+  // prend que le bas du dessin : le cout garde le haut, ou se lisent ses pointes.
+  // Les deux series cote a cote dans le creneau d'un tick, jamais empilees : une
+  // pile repondrait « combien d'appareils » alors que la question est « combien
+  // de clim, et combien de ventilos » -- deux nombres, deux barres.
+  const counts = deviceCounts(t0, t1);
+  let bars = '';
+  if (counts.max > 0 && counts.ts.length) {
+    const step = counts.ts.length > 1 ? (counts.ts[1] - counts.ts[0]) : 600;
+    // UNE BANDE PAR SERIE, empilees au pied du dessin plutot que superposees au
+    // meme endroit : a nombre egal, deux barres au meme point se cachent l'une
+    // l'autre et « 2 clim ET 2 ventilos » se lirait « 2 appareils ». Elles ne
+    // prennent que le bas du dessin -- le cout garde le haut, ou sont ses pointes.
+    const BAND = H * 0.17, GAP = H * 0.04;
+    const series = [{ arr: counts.ac, color: 'var(--cool)', base: H },
+                    { arr: counts.fan, color: 'var(--fan)', base: H - BAND - GAP }];
+    for (const se of series) {
+      // Valeurs egales consecutives fusionnees en UN rect. Sans ca, un releve
+      // toutes les 10 min dessine un peigne de barres separees par un blanc, et
+      // ce blanc se lit comme des arrets qui n'ont jamais eu lieu.
+      let runFrom = null, runVal = 0;
+      const flush = (endTs) => {
+        if (runFrom !== null && runVal) {
+          const x0 = x(runFrom), x1 = x(Math.min(endTs, t1));
+          const h = (runVal / counts.max) * BAND;
+          bars += `<rect x="${x0.toFixed(2)}" y="${(se.base - h).toFixed(1)}"`
+            + ` width="${Math.max(0.8, x1 - x0).toFixed(2)}" height="${h.toFixed(1)}"`
+            + ` fill="${se.color}" opacity=".45"/>`;
+        }
+        runFrom = null;
+      };
+      for (let i = 0; i < counts.ts.length; i++) {
+        const tsi = counts.ts[i];
+        if (tsi < t0 || tsi > t1) { flush(tsi); runVal = 0; continue; }
+        const v = se.arr[i];
+        if (runFrom === null) { runFrom = tsi; runVal = v; }
+        else if (v !== runVal) { flush(tsi); runFrom = tsi; runVal = v; }
+      }
+      flush(counts.ts[counts.ts.length - 1] + step);
+    }
+  }
+
   ecurve = { use: hasCost ? use : null, oT, t0, t1, unit, fmt,
              devs: devices.devs, vlx: devices.vlx, ts };
   // Abscisse : les etiquettes flottaient sans rien pour les rattacher au
@@ -1091,6 +1165,7 @@ function energyCurve(e) {
         <div class="eplot">
           <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
             ${grid}
+            ${bars}
             ${area ? `<path d="${area}" fill="var(--sun-fill)"/>` : ''}
             ${d ? `<path d="${d}" fill="none" stroke="var(--sun)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>` : ''}
             ${temp}
@@ -1105,7 +1180,7 @@ function energyCurve(e) {
       <div class="ecurwrap"><div class="ecur" hidden></div></div>
       </div>
       <div class="erow2"><span class="elab"></span><div class="eaxis">${axis}</div></div>
-      <div class="eleg">${hasCost ? `pointe ${esc(fmt(hi))}` : 'coût du jour publié demain — Enedis diffère'}${tempLbl ? ` · ${esc(tempLbl)}` : ''}${devices.velux ? ' · volets : hauteur = ouverture' : ''}</div>
+      <div class="eleg">${hasCost ? `pointe ${esc(fmt(hi))}` : 'coût du jour publié demain — Enedis diffère'}${tempLbl ? ` · ${esc(tempLbl)}` : ''}${counts.max ? ` · barres : combien en marche à la fois (max ${counts.max}) <i class="ekey" style="background:var(--cool)"></i>clim <i class="ekey" style="background:var(--fan)"></i>ventilo` : ''}${devices.velux ? ' · volets : hauteur = ouverture' : ''}</div>
     </div>`;
 }
 
