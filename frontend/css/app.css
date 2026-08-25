@@ -96,14 +96,32 @@ body {
    ended up cut off the right edge. Same reason for min-width:0 on the card. */
 
 
-/* Bloc électricité : niveau MAISON, donc au-dessus des cartes de zone et pas
-   dedans — le Linky compte tout le compteur, pas une pièce. */
+/* Bloc vue d'ensemble : niveau MAISON, donc au-dessus des cartes de zone et
+   pas dedans — coût, dehors et appareils y sont tous relevés MAISON, pas
+   piece. Le titre du bloc ("Vue d'ensemble") reste distinct de "Électricité",
+   qui n'en est qu'un étage : lui donner le titre general laissait croire que
+   le reste (courbe dehors, appareils) etait un a-cote du compteur. */
 .energy { display: block;
   background: var(--card); border: 1px solid var(--edge); border-radius: 14px;
   padding: .7rem .85rem; margin-bottom: .75rem;
 }
 .erow { display: flex; flex-wrap: wrap; align-items: baseline; gap: .55rem 1.1rem; }
+.erow.ostats { margin-top: .35rem; }
 .energy .etitle { font-size: .88rem; font-weight: 660; }
+/* Petit repere devant les 3 chiffres electricite : dit de quoi ils parlent
+   sans leur donner le meme poids que le titre du bloc. */
+.energy .eyebrow {
+  font-size: .68rem; font-weight: 660; color: var(--ink-dim);
+  text-transform: uppercase; letter-spacing: .03em;
+}
+/* Charniere entre la courbe (coût + dehors) et les pistes d'appareils : sans
+   elle les deux lectures s'enchainaient sans rien pour dire qu'on change de
+   sujet, alors que la courbe est un COUT et les pistes une ACTIVITE. */
+.esection .esectlab {
+  font-size: .62rem; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--ink-dim); opacity: .75;
+}
+.esection { margin: .35rem 0 .15rem; }
 /* Courbe du coût : niveau maison, donc pleine largeur du bloc. */
 .ecurve { margin-top: .6rem; }
 /* Gouttiere a gauche : le trace, les pistes d'appareils et l'axe partagent la

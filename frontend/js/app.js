@@ -1062,7 +1062,7 @@ function energyCurve(e) {
   return `<div class="ecurve">
       <div class="estack">
       <div class="erow2">
-        <span class="elab"></span>
+        <span class="elab" title="coût de l'électricité, °dehors">coût</span>
         <div class="eplot">
           <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
             ${grid}
@@ -1075,6 +1075,7 @@ function energyCurve(e) {
           <div class="ylab ylab-r">${yLabelsR}</div>
         </div>
       </div>
+      ${devices.html ? `<div class="erow2 esection"><span class="elab"></span><span class="esectlab">appareils</span></div>` : ''}
       ${devices.html}
       <div class="ecurwrap"><div class="ecur" hidden></div></div>
       </div>
@@ -1085,8 +1086,8 @@ function energyCurve(e) {
 
 function energyHtml(e) {
   if (!e) {
-    return `<div class="energy off"><b>Électricité</b>`
-      + `<span class="esub">consommation indisponible — le compteur n'a pas répondu</span></div>`;
+    return `<div class="energy off"><b class="etitle">Vue d'ensemble</b>`
+      + `<span class="esub">électricité indisponible — le compteur n'a pas répondu</span></div>`;
   }
   const old = e.age_s != null && e.age_s > 3600;
   const cell = (label, b) => b && b.kwh != null
@@ -1106,13 +1107,21 @@ function energyHtml(e) {
       + `<em>${kwh(last[1])}</em></span>`
     : '';
 
+  // Titre "Vue d'ensemble" et non "Électricité" : le bloc montre aussi, sous la
+  // courbe de coût, l'activité de TOUS les appareils de la maison (clim,
+  // ventilo, volets) -- l'électricité n'en est que le premier étage, celui qui
+  // porte les chiffres en euros. Un titre qui ne nommait que l'argent faisait
+  // passer le reste pour un a-cote alors que c'est la piste la plus lue.
   return `<div class="energy${old ? ' stale' : ''}">
       <div class="erow">
-        <b class="etitle">Électricité</b>
+        <b class="etitle">Vue d'ensemble</b>
+      </div>
+      <div class="erow ostats">
+        <span class="eyebrow">Électricité</span>
         ${dayCell}${cell('ce mois', e.mois)}${cell('cette année', e.annee)}
       </div>
       ${energyCurve(e)}
-      ${old ? `<span class="esub">relevé vieux de ${ago(e.generated_at, Date.now())}</span>` : ''}
+      ${old ? `<span class="esub">relevé électricité vieux de ${ago(e.generated_at, Date.now())}</span>` : ''}
     </div>`;
 }
 
