@@ -456,6 +456,10 @@ button.act-quiet { color: var(--ink); background: var(--card-2); border-color: v
 /* Le champ date est une valeur parmi les termes : il s'aligne sur les puces et
    se marque comme elles quand c'est LUI qui est retenu. */
 .dur-date.on, .abs-date.on { border-color: var(--ink); color: var(--ink); font-weight: 560; }
+/* Le retour a l'automatique, separe des deux verbes et de leur duree : le trait
+   marque la fin de ce que le reglage gouverne. */
+.act-auto { margin-top: .6rem; padding-top: .6rem; border-top: 1px dashed var(--edge); }
+
 /* Les valeurs sont en retrait sous leurs onglets : la hierarchie se voit sans
    qu'on ait a lire les libelles. */
 .act-vals { margin-top: .3rem; padding-left: .9rem; }

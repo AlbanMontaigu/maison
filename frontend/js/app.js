@@ -2133,10 +2133,11 @@ function kindBlock(kind, info, zoneName, absent) {
                      { cmd: verb, value: 'on', zone: zoneName, hours: d.forceHours },
                      zoneName, mode === 'on' ? null : whyForce, mode === 'on'));
   }
-  // Le troisieme mode : rendre la main. Toujours propose, y compris quand il est
-  // deja actif -- c'est lui qui dit « rien ne bloque ».
-  acts.push(actBtn('Piloté par le moteur', { cmd: verb, value: 'on', zone: zoneName },
-                   zoneName, null, mode === 'auto'));
+  // Le troisieme mode : rendre la main. Il vit HORS du bloc des deux autres,
+  // parce qu'il ne consomme pas la duree -- posé sur leur rangee, il laissait
+  // croire qu'un « pendant 3 h » s'appliquait aussi a lui.
+  const auto = actBtn('Piloté par le moteur', { cmd: verb, value: 'on', zone: zoneName },
+                      zoneName, null, mode === 'auto');
 
   // `absent` bloque clim et ventilo partout : le dire, plutot que de laisser
   // croire qu'un bouton de cette piece y changera quelque chose.
@@ -2145,10 +2146,13 @@ function kindBlock(kind, info, zoneName, absent) {
        les pièces. Ces boutons reprendront la main au retour.</p>`
     : '';
 
+  // Les deux verbes, puis LEUR duree, puis -- separe -- le retour a
+  // l'automatique. Le trait dit ou s'arrete la portee du reglage.
   return `<div class="act-kind"><h4>${ui.label}</h4>
     ${note}
     <div class="act-row">${acts.join('')}</div>
     ${durationRow(zoneName, kind)}
+    <div class="act-row act-auto">${auto}</div>
   </div>`;
 }
 
