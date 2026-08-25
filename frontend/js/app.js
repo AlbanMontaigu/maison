@@ -2076,13 +2076,18 @@ const tomorrowKey = () => dayKey(Math.floor(Date.now() / 1000) + 86400);
 // Vocabulaire par appareil. Le volet a trois actions et non deux : il n'a pas
 // d'etat marche/arret mais une POSITION, et « le laisser tranquille » (figer)
 // est une troisieme intention, pas l'absence des deux autres.
+// `onIcon`/`offIcon`/`figeIcon` : purement decoratifs, pas de connaissance de
+// la maison la-dedans (l'emoji ne fait qu'illustrer le verbe deja dans le
+// libelle), donc rien qui contredise la regle du fichier -- zero nom de piece
+// ou d'appareil code en dur.
 const KIND_UI = {
   ac:    { label: 'Clim',        libre: 'Clim pilotée normalement par le moteur.',
-           on: 'Allumer', off: 'Couper', coupe: 'Clim coupée' },
+           on: 'Allumer', off: 'Couper', coupe: 'Clim coupée', onIcon: '❄️', offIcon: '⏻' },
   fan:   { label: 'Ventilateur', libre: 'Ventilateur piloté normalement par le moteur.',
-           on: 'Allumer', off: 'Couper', coupe: 'Ventilateur coupé' },
+           on: 'Allumer', off: 'Couper', coupe: 'Ventilateur coupé', onIcon: '🌀', offIcon: '⏻' },
   velux: { label: 'Volet',       libre: 'Volet piloté normalement par le moteur.',
-           on: 'Ouvrir', off: 'Fermer', fige: 'Figer', coupe: 'Volet figé — il reste où il est' },
+           on: 'Ouvrir', off: 'Fermer', fige: 'Figer', coupe: 'Volet figé — il reste où il est',
+           onIcon: '⬆️', offIcon: '⬇️', figeIcon: '📌' },
 };
 // Ordre d'affichage stable, du levier le plus utilise au moins utilise. Sans
 // lui, l'ordre viendrait des cles du JSON et pourrait changer d'un deploiement
@@ -2211,17 +2216,18 @@ function durationRow(zoneName, kind) {
 // partagent donc la meme apparence, et seule l'appartenance a l'etat courant
 // les distingue. « Piloté par le moteur » n'etait qu'une pastille : en faire un
 // bouton rend le retour a l'automatique aussi direct que l'en sortir.
-function actBtn(label, body, zoneName, why, active) {
+function actBtn(label, body, zoneName, why, active, icon) {
   const cls = `act${active ? '' : ' act-quiet'}`;
+  const text = icon ? `<span class="act-ic" aria-hidden="true">${icon}</span>${esc(label)}` : esc(label);
   if (why) {
-    return `<button type="button" class="${cls}" disabled title="${esc(why)}">${esc(label)}</button>`;
+    return `<button type="button" class="${cls}" disabled title="${esc(why)}">${text}</button>`;
   }
   if (active) {
     // L'etat courant ne se represse pas : il se lit. Le desarmer evite un aller
     // -retour inutile jusqu'au moteur pour ne rien changer.
-    return `<button type="button" class="${cls}" disabled aria-current="true">${esc(label)}</button>`;
+    return `<button type="button" class="${cls}" disabled aria-current="true">${text}</button>`;
   }
-  return `<button type="button" class="${cls}" data-body="${esc(JSON.stringify(body))}">${esc(label)}</button>`;
+  return `<button type="button" class="${cls}" data-body="${esc(JSON.stringify(body))}">${text}</button>`;
 }
 
 const MAX_FORCE_H = 24;   // borne de l'API : un forcage se compte en heures
@@ -2258,32 +2264,32 @@ function kindBlock(kind, info, zoneName, absent) {
   if (kind === 'velux') {
     acts.push(actBtn(mode === 'on' ? `Ouvert${fin}` : ui.on,
                      { cmd: verb, value: 'on', zone: zoneName, hours: d.forceHours },
-                     zoneName, mode === 'on' ? null : whyForce, mode === 'on'));
+                     zoneName, mode === 'on' ? null : whyForce, mode === 'on', ui.onIcon));
     acts.push(actBtn(mode === 'off' && m ? `Fermé${fin}` : ui.off,
                      { cmd: verb, value: 'off', zone: zoneName, hours: d.forceHours },
-                     zoneName, (mode === 'off' && m) ? null : whyForce, mode === 'off' && m));
+                     zoneName, (mode === 'off' && m) ? null : whyForce, mode === 'off' && m, ui.offIcon));
     // Figer = « n'y touche plus », une intention a l'echelle du jour.
     const figeActive = mode === 'off' && !m;
     const bodyF = { cmd: verb, value: 'off', zone: zoneName };
     if (d.until) bodyF.until = d.until;
     acts.push(actBtn(figeActive ? `Figé${fin}` : ui.fige, bodyF, zoneName,
                      figeActive ? null : (!d.dayScale ? dayOnly : d.missing ? needDate : null),
-                     figeActive));
+                     figeActive, ui.figeIcon));
   } else {
     const offBody = d.dayScale
       ? { cmd: verb, value: 'off', zone: zoneName, ...(d.until ? { until: d.until } : {}) }
       : { cmd: verb, value: 'off', zone: zoneName, hours: d.forceHours };
     acts.push(actBtn(mode === 'off' ? `Coupé${fin}` : ui.off, offBody, zoneName,
-                     mode === 'off' ? null : (d.missing ? needDate : null), mode === 'off'));
+                     mode === 'off' ? null : (d.missing ? needDate : null), mode === 'off', ui.offIcon));
     acts.push(actBtn(mode === 'on' ? `En marche${fin}` : ui.on,
                      { cmd: verb, value: 'on', zone: zoneName, hours: d.forceHours },
-                     zoneName, mode === 'on' ? null : whyForce, mode === 'on'));
+                     zoneName, mode === 'on' ? null : whyForce, mode === 'on', ui.onIcon));
   }
   // Le troisieme mode : rendre la main. Il vit HORS du bloc des deux autres,
   // parce qu'il ne consomme pas la duree -- posé sur leur rangee, il laissait
   // croire qu'un « pendant 3 h » s'appliquait aussi a lui.
   const auto = actBtn('Piloté par le moteur', { cmd: verb, value: 'on', zone: zoneName },
-                      zoneName, null, mode === 'auto');
+                      zoneName, null, mode === 'auto', '🤖');
 
   // `absent` bloque clim et ventilo partout : le dire, plutot que de laisser
   // croire qu'un bouton de cette piece y changera quelque chose.

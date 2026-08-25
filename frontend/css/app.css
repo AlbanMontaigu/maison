@@ -493,6 +493,7 @@ button.act {
 }
 button.act:hover { filter: brightness(1.08); }
 button.act:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.act-ic { margin-right: .3em; }
 /* « Annuler mes consignes » efface le travail de la journee : il ne doit pas
    avoir le meme poids visuel qu'une consigne ordinaire. */
 button.act-quiet { color: var(--ink); background: var(--card-2); border-color: var(--line); }
