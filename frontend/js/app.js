@@ -236,9 +236,16 @@ function chartSvg(f, t, marks, nowIdx) {
 
   const outFc = (f.fc && f.fc.out) || [];
   const outPast = (f.fc && f.fc.past) || [];
+  // Une seule ligne "prevu", pas deux : `past` (l'archive) couvre desormais
+  // toute la journee et `outFc` (la prevision fraiche) n'existe qu'a partir
+  // de la prochaine heure pleine. Les tracer chacune sur tout leur domaine
+  // donnait DEUX pointilles qui divergeaient l'un de l'autre a vue d'oeil --
+  // ce n'est pas un desaccord a montrer, juste la meme prevision mise a jour.
+  // La plus fraiche gagne partout ou elle existe.
+  const outMerged = outPast.map((p, i) => (outFc[i] != null ? outFc[i] : p));
   const vals = [];
   for (let i = 0; i < n; i++) {
-    for (const v of [T[i], bmin[i], bmax[i], out[i], outFc[i], outPast[i]]) if (v != null) vals.push(v);
+    for (const v of [T[i], bmin[i], bmax[i], out[i], outMerged[i]]) if (v != null) vals.push(v);
   }
   if (!vals.length) return '';
   let lo = Math.min(...vals), hi = Math.max(...vals);
@@ -307,8 +314,7 @@ function chartSvg(f, t, marks, nowIdx) {
     ${bandPath ? `<path d="${bandPath}" fill="var(--band-fill)"/>` : ''}
     ${gapArea(out, outPast, x, y)}
     <path d="${line(out)}" fill="none" stroke="var(--out)" stroke-width="1.2" opacity=".85" vector-effect="non-scaling-stroke"/>
-    <path d="${line(outPast)}" fill="none" stroke="var(--fc)" stroke-width="1.3" stroke-dasharray="1 3" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
-    <path d="${line(outFc)}" fill="none" stroke="var(--fc)" stroke-width="1.3" stroke-dasharray="1 3" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+    <path d="${line(outMerged)}" fill="none" stroke="var(--fc)" stroke-width="1.3" stroke-dasharray="1 3" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
     <path d="${line(T)}" fill="none" stroke="var(--ink)" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
     ${nowMark(nowIdx, n, PLOT_H)}
     <line x1="0" y1="${PLOT_H}" x2="${PLOT_W}" y2="${PLOT_H}" stroke="var(--ink-dim)" stroke-width="1" vector-effect="non-scaling-stroke"/>
