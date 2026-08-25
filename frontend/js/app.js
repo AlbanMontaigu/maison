@@ -230,12 +230,18 @@ function gapArea(measured, forecast, x, y) {
   }).join('');
 }
 
-function chartSvg(f, t, marks, nowIdx) {
+function chartSvg(f, t, marks, nowIdx, full) {
   const n = t.length;
-  const T = f.T, bmin = f.bmin, bmax = f.bmax, out = f.out;
-
-  const outFc = (f.fc && f.fc.out) || [];
-  const outPast = (f.fc && f.fc.past) || [];
+  const T = f.T, bmin = f.bmin, bmax = f.bmax;
+  // Sur l'accueil, la courbe repond « la piece tient-elle sa bande ? » : la
+  // mesure et la bande, rien d'autre. Le dehors et sa prevision servent a
+  // expliquer POURQUOI elle derive -- une question de deuxieme rang, qui vaut
+  // qu'on ouvre la piece. Les laisser ici coutait deux traits par vignette et,
+  // pire, l'echelle : une nuit a 15° dehors ecrasait contre son plafond une
+  // piece qui n'a bouge que d'un degre.
+  const out = full ? f.out : [];
+  const outFc = (full && f.fc && f.fc.out) || [];
+  const outPast = (full && f.fc && f.fc.past) || [];
   // Une seule ligne "prevu", pas deux : `past` (l'archive) couvre desormais
   // toute la journee et `outFc` (la prevision fraiche) n'existe qu'a partir
   // de la prochaine heure pleine. Les tracer chacune sur tout leur domaine
@@ -312,9 +318,9 @@ function chartSvg(f, t, marks, nowIdx) {
     ${grid}
     ${seps}
     ${bandPath ? `<path d="${bandPath}" fill="var(--band-fill)"/>` : ''}
-    ${gapArea(out, outPast, x, y)}
-    <path d="${line(out)}" fill="none" stroke="var(--out)" stroke-width="1.2" opacity=".85" vector-effect="non-scaling-stroke"/>
-    <path d="${line(outMerged)}" fill="none" stroke="var(--fc)" stroke-width="1.3" stroke-dasharray="1 3" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+    ${full ? gapArea(out, outPast, x, y) : ''}
+    ${full ? `<path d="${line(out)}" fill="none" stroke="var(--out)" stroke-width="1.2" opacity=".85" vector-effect="non-scaling-stroke"/>` : ''}
+    ${full ? `<path d="${line(outMerged)}" fill="none" stroke="var(--fc)" stroke-width="1.3" stroke-dasharray="1 3" stroke-linecap="round" vector-effect="non-scaling-stroke"/>` : ''}
     <path d="${line(T)}" fill="none" stroke="var(--ink)" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
     ${nowMark(nowIdx, n, PLOT_H)}
     <line x1="0" y1="${PLOT_H}" x2="${PLOT_W}" y2="${PLOT_H}" stroke="var(--ink-dim)" stroke-width="1" vector-effect="non-scaling-stroke"/>
@@ -758,7 +764,9 @@ function zoneCard(zone, f, t, marks, nowIdx) {
     </div>
     ${head}
     <div class="tracks">
-      ${trackRow('température', 'Noir : la pièce. Bleu : dehors, mesuré. Pointillés violets : dehors, prévu. Fond vert : l\'objectif de température.', chartSvg(f, t, marks, nowIdx))}
+      ${trackRow('température', full
+          ? 'Noir : la pièce. Bleu : dehors, mesuré. Pointillés violets : dehors, prévu. Fond vert : l\'objectif de température.'
+          : 'Noir : la pièce. Fond vert : l\'objectif de température.', chartSvg(f, t, marks, nowIdx, full))}
       ${!full ? '' : (() => { const sun = f.has.solar ? sunSvg(f.solar, nowIdx, marks, f.fc && f.fc.solar) : '';
           return sun ? trackRow('soleil', 'Rayonnement reçu par la fenêtre de cette pièce, en W/m²', sun) : ''; })()}
       ${!full ? '' : trackRow('décision', "Ce que la maison a décidé de faire à cet instant — une seule chose à la fois", trackSvg('act', nowIdx, f.act, (a) => a ? { fill: colorFor(a), op: meta(a).active || isAlert(a) ? .95 : PASSIVE_OP } : null))}
@@ -1833,7 +1841,7 @@ function runSpan(values, i, t) {
 // One bubble per row, saying what THAT row shows. A single readout repeating
 // every track under every row made the pointer position meaningless: whichever
 // line you were on, you got the same block and had to find your line in it.
-function tipFor(track, f, i, t) {
+function tipFor(track, f, i, t, full) {
   const dim = (x) => `<span class="dim">${x}</span>`;
   switch (track) {
     case 'act': {
@@ -1866,16 +1874,18 @@ function tipFor(track, f, i, t) {
     }
     default: {
       const temp = f.T[i], lo = f.bmin[i], hi = f.bmax[i];
-      const prev = f.fc && f.fc.past ? f.fc.past[i] : null;
-      // L'ecart n'a de sens que pour le DEHORS : c'est la seule des deux
-      // series prevues qu'on mesure aussi.
-      const gap = prev != null && f.out[i] != null
+      // La bulle ne dit que ce que le dessin porte : sur l'accueil la courbe se
+      // limite a la piece et a sa bande, donc le dehors et son ecart au prevu
+      // n'y sont pas annonces -- ils reviennent sur la page de la piece.
+      const prev = full && f.fc && f.fc.past ? f.fc.past[i] : null;
+      const outV = full ? f.out[i] : null;
+      const gap = prev != null && outV != null
         ? ` <span class="dim">(prévu ${prev.toFixed(1)}°, ${
-            Math.abs(f.out[i] - prev) < 0.05 ? 'pile'
-            : `${f.out[i] > prev ? '+' : '−'}${Math.abs(f.out[i] - prev).toFixed(1)}°`})</span>`
+            Math.abs(outV - prev) < 0.05 ? 'pile'
+            : `${outV > prev ? '+' : '−'}${Math.abs(outV - prev).toFixed(1)}°`})</span>`
         : '';
       return `${temp != null ? `<b>${temp.toFixed(1)}°</b>` : 'pas de mesure'}`
-        + `${f.out[i] != null ? ` · dehors ${f.out[i].toFixed(1)}°${gap}` : ''}`
+        + `${outV != null ? ` · dehors ${outV.toFixed(1)}°${gap}` : ''}`
         + `${lo != null && hi != null ? `<br>${dim(`objectif ${lo}–${hi}°`)}` : ''}`;
     }
   }
@@ -2026,16 +2036,19 @@ function bindTip() {
     // service la ou il n'y a que le futur.
     const ahead = viewNowIdx >= 0 && i > viewNowIdx;
     const track = svg.dataset.track || 'chart';
+    // MEME condition que la carte, lue sur la classe qu'elle a posee : la bulle
+    // et le dessin doivent parler de la meme chose.
+    const full = card.classList.contains('solo');
     // Au-dela du marqueur on n'a que de la prevision -- et seulement pour le
     // dehors et le soleil. Le reste n'a pas eu lieu, et on le dit.
     let body;
     if (ahead && track === 'occ' && f.occPlan && f.occPlan[i] != null) {
       body = `occupation prévue : <b>${esc(occMeta(f.occPlan[i]).label)}</b><br>`
         + `<span class="dim">règle horaire + agenda du jour</span>`;
-    } else if (!ahead) body = tipFor(track, f, i, t);
+    } else if (!ahead) body = tipFor(track, f, i, t, full);
     else if (track === 'solar' && f.fc && f.fc.solar && f.fc.solar[i] != null) {
       body = `soleil prévu : <b>${f.fc.solar[i]} W/m²</b><br><span class="dim">prévision météo</span>`;
-    } else if (track === 'chart' && f.fc && f.fc.out && f.fc.out[i] != null) {
+    } else if (full && track === 'chart' && f.fc && f.fc.out && f.fc.out[i] != null) {
       body = `dehors, prévu : <b>${f.fc.out[i].toFixed(1)}°</b><br><span class="dim">prévision météo</span>`;
     } else body = '<span class="dim">à venir</span>';
     tip.innerHTML = `<b>${dayLabel(t[i])} ${hhmm(t[i])}</b><br>` + body;
