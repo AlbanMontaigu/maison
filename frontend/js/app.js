@@ -731,7 +731,12 @@ function zoneCard(zone, f, t, marks, nowIdx) {
   // dirait deux fois. Reste ce qui n'y est pas.
   const sub = [];
   if (!zone.has_ac && !zone.has_fan && !zone.has_velux) sub.push('aucun appareil ici');
-  if (c.day_peak != null) sub.push(`plus chaud aujourd'hui : ${c.day_peak}°`);
+  // `t_max_today`, PAS `day_peak` : ce dernier est le pic exterieur prevu sur
+  // 24 h que le moteur calcule pour piloter les volets. Affiche ici, il donnait
+  // le meme nombre sur les six cartes -- et ce nombre n'etait ni interieur, ni
+  // mesure, ni « jusqu'a maintenant ». Il surestimait une piece fraiche et
+  // sous-estimait la plus chaude, le tout sous un libelle qui promet la piece.
+  if (c.t_max_today != null) sub.push(`plus chaud aujourd'hui : ${c.t_max_today}°`);
 
   const open = zoneFromHash() === zone.name;
   // Sur la page d'accueil, la carte d'une piece repond a UNE question : y
