@@ -2006,8 +2006,14 @@ let ctlBusy = false;
 // whether the directive was applied now or waits for the next tick.
 let ctlSaid = null;
 
+// nginx borne deja le saut vers l'API confort (connect/read timeout cote
+// serveur) ; ce timeout couvre l'autre moitie du trajet, navigateur -> nginx,
+// qu'un reveil de veille ou un reseau local capricieux peut faire trainer sans
+// jamais rejeter le fetch -- un bouton resterait sinon bloque en "envoi en cours".
+const API_TIMEOUT_MS = 15_000;
+
 async function apiCall(path, opts) {
-  const res = await fetch(path, { cache: 'no-store', ...opts });
+  const res = await fetch(path, { cache: 'no-store', signal: AbortSignal.timeout(API_TIMEOUT_MS), ...opts });
   const body = await res.text();
   let json = null;
   try { json = JSON.parse(body); } catch { /* handled just below */ }
@@ -2090,14 +2096,29 @@ const durKey = (zone, kind) => `${zone}|${kind}`;
 const hhmmLocal = (ts) => new Date(ts * 1000).toLocaleTimeString('fr-FR',
   { hour: '2-digit', minute: '2-digit' });
 
-// Heures restantes jusqu'a la fin d'un jour donne (null = aujourd'hui). Sert a
+// Decalage (minutes) d'un fuseau IANA a un instant donne : formatToParts avec
+// timeZoneName:'shortOffset' rend "GMT+2", pas besoin de tables DST a la main.
+function tzOffsetMinutes(epochMs, tz) {
+  const part = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' })
+    .formatToParts(new Date(epochMs))
+    .find((p) => p.type === 'timeZoneName');
+  const m = /GMT([+-]\d+)(?::(\d+))?/.exec(part?.value || '');
+  if (!m) return 0;
+  const sign = m[1].startsWith('-') ? -1 : 1;
+  return parseInt(m[1], 10) * 60 + sign * (m[2] ? parseInt(m[2], 10) : 0);
+}
+
+// Heures restantes jusqu'a la fin d'un jour donne (null = aujourd'hui), dans le
+// fuseau de la maison -- pas celui du telephone qui pose la commande. Sert a
 // exprimer « ce soir » comme une duree : un forcage EN MARCHE n'existe qu'en
 // heures cote moteur, il n'a pas d'equivalent a l'echelle du jour.
 function hoursUntilEndOf(dayIso) {
-  const now = new Date();
-  const end = dayIso ? new Date(`${dayIso}T23:59:59`) : new Date(now);
-  if (!dayIso) end.setHours(23, 59, 59, 0);
-  const h = (end.getTime() - now.getTime()) / 3600000;
+  const tz = payload?.tz || 'Europe/Paris';
+  const day = dayIso || todayKey();
+  const [y, mo, d] = day.split('-').map(Number);
+  const guess = Date.UTC(y, mo - 1, d, 23, 59, 59);
+  const endMs = guess - tzOffsetMinutes(guess, tz) * 60000;
+  const h = (endMs - Date.now()) / 3600000;
   return h > 0 ? Math.round(h * 10) / 10 : null;
 }
 
@@ -2469,9 +2490,16 @@ function bindActions() {
 
 /* ── load loop ───────────────────────────────────────────────────────────── */
 
+// Deux fetch en vol (tab qui reprend focus pile au tick, ou reload post-
+// commande) ne doivent pas laisser la reponse la plus VIEILLE ecraser la plus
+// fraiche si elle resout apres. Seul le dernier load() lance a le droit d'ecrire.
+let _loadSeq = 0;
+
 async function load() {
+  const seq = ++_loadSeq;
   try {
     const res = await fetch('data.json', { cache: 'no-store' });
+    if (seq !== _loadSeq) return;
     // 204 = the container is up but nothing has been pushed yet. That is a
     // waiting state, not an error, and it must not blank an existing view.
     if (res.status === 204) {
@@ -2479,10 +2507,13 @@ async function load() {
       return;
     }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    payload = await res.json();
+    const parsed = await res.json();
+    if (seq !== _loadSeq) return;
+    payload = parsed;
     if (payload.error) { $('zones').innerHTML = `<p class="empty">${esc(payload.error)}</p>`; payload = null; return; }
     render();
   } catch (e) {
+    if (seq !== _loadSeq) return;
     // A failed refresh keeps the last good view: a network blip must not erase
     // the house. Only the status pill says something is wrong.
     $('engine').textContent = 'données injoignables';
