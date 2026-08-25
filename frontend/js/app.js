@@ -64,6 +64,13 @@ const frames = new Map();
 const acted = new Map();
 const FLASH_MS = 1600;
 
+// Quelles courbes l'utilisateur a depliees. En memoire et pas dans le stockage :
+// c'est un geste de lecture, pas un reglage -- on ne veut pas retrouver demain
+// six courbes ouvertes parce qu'on en a consulte six une fois. Mais l'etat DOIT
+// survivre au re-rendu : la page se redessine toute seule chaque minute, et une
+// courbe qui se replie sous les yeux pendant qu'on la lit est un bug.
+const openGraphs = new Set();
+
 const $ = (id) => document.getElementById(id);
 
 /* ── helpers ─────────────────────────────────────────────────────────────── */
@@ -763,6 +770,8 @@ function zoneCard(zone, f, t, marks, nowIdx) {
       ${headline(c, f, tempCls)}
     </div>
     ${head}
+    ${full ? '' : `<details class="gfold"${openGraphs.has(zone.name) ? ' open' : ''}>
+      <summary>courbe</summary>`}
     <div class="tracks">
       ${trackRow('température', full
           ? 'Noir : la pièce. Bleu : dehors, mesuré. Pointillés violets : dehors, prévu. Fond vert : l\'objectif de température.'
@@ -792,6 +801,7 @@ function zoneCard(zone, f, t, marks, nowIdx) {
       ${axisHtml(t, marks, nowIdx)}
       <div class="cursor" hidden></div>
     </div>
+    ${full ? '' : '</details>'}
     ${open ? zoneDetail(zone, f, t) : ''}
   </section>`;
 }
@@ -2017,6 +2027,20 @@ function bindEnergyTip() {
   });
 }
 
+// Retient quelles courbes sont depliees, pour que le re-rendu automatique les
+// retrouve ouvertes. En phase de CAPTURE : `toggle` ne remonte pas, un
+// ecouteur pose sur le conteneur ne le verrait jamais autrement.
+function bindGraphFold() {
+  $('zones').addEventListener('toggle', (ev) => {
+    const d = ev.target;
+    if (!(d instanceof HTMLDetailsElement) || !d.classList.contains('gfold')) return;
+    const card = d.closest('.zone');
+    if (!card) return;
+    if (d.open) openGraphs.add(card.dataset.zone);
+    else openGraphs.delete(card.dataset.zone);
+  }, true);
+}
+
 function bindTip() {
   const tip = $('tip');
   $('zones').addEventListener('pointermove', (ev) => {
@@ -2630,6 +2654,7 @@ fetch('build.txt').then((r) => r.ok ? r.text() : '').then((v) => {
 bindView();
 bindRoute();
 bindTip();
+bindGraphFold();
 bindEnergyTip();
 bindActions();
 // Probed once at boot and re-read after every command. Not on the refresh

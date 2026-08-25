@@ -314,6 +314,24 @@ body {
    draw the same instant at different pixels and the stack stops being readable
    as a vertical slice of time. */
 .tracks { margin-top: .35rem; position: relative; }
+/* Courbe repliee par defaut sur l'accueil : la carte repond deja en toutes
+   lettres au-dessus (« trop chaud — objectif 19–24 °C »), et six courbes
+   ouvertes font une page qu'on parcourt au lieu de la lire. Un <details>
+   natif plutot qu'un bouton a nous : il connait deja le clavier, le focus et
+   la recherche dans la page. */
+.gfold > summary {
+  cursor: pointer; list-style: none;
+  display: inline-flex; align-items: center; gap: .3rem;
+  padding: .3rem .1rem; margin-top: .1rem;
+  font-size: .72rem; color: var(--ink-dim);
+}
+/* Safari pose son propre triangle par ce pseudo-element, que `list-style` ne
+   couvre pas : sans cette ligne, deux marqueurs cote a cote. */
+.gfold > summary::-webkit-details-marker { display: none; }
+.gfold > summary::before { content: '▸'; font-size: .85em; line-height: 1; }
+.gfold[open] > summary::before { content: '▾'; }
+.gfold > summary:hover { color: var(--ink); }
+.gfold > summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
 
 /* Curseur de lecture : matérialise le point que la bulle est en train de
    décrire. Volontairement plus discret que le trait « maintenant », qui lui
