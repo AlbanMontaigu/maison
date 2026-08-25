@@ -1042,17 +1042,21 @@ function energyCurve(e) {
   // Les deux series cote a cote dans le creneau d'un tick, jamais empilees : une
   // pile repondrait « combien d'appareils » alors que la question est « combien
   // de clim, et combien de ventilos » -- deux nombres, deux barres.
+  // Le comptage a SON dessin, sous celui du cout et sur la MEME abscisse. Pose
+  // au pied de la courbe de cout, il lui disputait la lecture : deux unites sans
+  // rapport (des euros, des appareils) dans un seul cadre demandent de demeler
+  // ce qui appartient a quoi avant de lire quoi que ce soit. Separes et alignes,
+  // on lit chacun pour lui, et on les compare a la verticale.
   const counts = deviceCounts(t0, t1);
+  const HN = 30;
   let curves = '';
   if (counts.max > 0 && counts.ts.length) {
     const step = counts.ts.length > 1 ? (counts.ts[1] - counts.ts[0]) : 600;
-    // UNE BANDE PAR SERIE, empilees au pied du dessin plutot que superposees au
-    // meme endroit : a nombre egal, deux traits au meme point se confondent et
-    // « 2 clim ET 2 ventilos » se lirait « 2 appareils ». Elles ne prennent que
-    // le bas du dessin -- le cout garde le haut, ou sont ses pointes.
-    const BAND = H * 0.17, GAP = H * 0.04;
-    const series = [{ arr: counts.ac, color: 'var(--cool)', base: H },
-                    { arr: counts.fan, color: 'var(--fan)', base: H - BAND - GAP }];
+    // UNE BANDE PAR SERIE : a nombre egal, deux traits sur la meme echelle se
+    // confondraient et « 2 clim ET 2 ventilos » se lirait « 2 appareils ».
+    const BAND = 11, GAP = 4;
+    const series = [{ arr: counts.ac, color: 'var(--cool)', base: HN },
+                    { arr: counts.fan, color: 'var(--fan)', base: HN - BAND - GAP }];
     for (const se of series) {
       const pts = [];
       for (let i = 0; i < counts.ts.length; i++) {
@@ -1062,9 +1066,8 @@ function energyCurve(e) {
       }
       if (!pts.length) continue;
       const yv = (v) => se.base - (v / counts.max) * BAND;
-      // EN MARCHES, jamais lissee : un nombre d'appareils est un entier qui
-      // saute de 1 a 2. Un trait oblique entre les deux dessinerait un 1,5 qui
-      // n'a jamais tourne, et c'est precisement le chiffre qu'on vient lire.
+      // EN MARCHES, jamais lissee : un nombre d'appareils saute de 1 a 2, et un
+      // trait oblique entre les deux dessinerait un 1,5 qui n'a jamais tourne.
       let dd = `M${x(pts[0][0]).toFixed(2)},${yv(pts[0][1]).toFixed(1)}`;
       for (let k = 1; k < pts.length; k++) {
         if (pts[k][1] === pts[k - 1][1]) continue;
@@ -1076,6 +1079,10 @@ function energyCurve(e) {
       const endX = x(Math.min(pts[pts.length - 1][0] + step, t1));
       dd += `L${endX.toFixed(2)},${yv(pts[pts.length - 1][1]).toFixed(1)}`;
       const x0 = x(pts[0][0]).toFixed(2), b = se.base.toFixed(1);
+      // Ligne de base propre a la serie : sans elle, « zero appareil » flotte au
+      // milieu du cadre et ne se distingue pas d'une serie absente.
+      curves += `<line x1="0" y1="${b}" x2="${W}" y2="${b}" stroke="${se.color}"`
+        + ` stroke-width="1" opacity=".22" vector-effect="non-scaling-stroke"/>`;
       curves += `<path d="${dd}L${endX.toFixed(2)},${b}L${x0},${b}Z"`
         + ` fill="${se.color}" opacity=".14"/>`;
       curves += `<path d="${dd}" fill="none" stroke="${se.color}" stroke-width="1.3"`
@@ -1098,13 +1105,28 @@ function energyCurve(e) {
         + ` stroke-width="1" opacity=".55" vector-effect="non-scaling-stroke"/>`;
     }).join('');
 
+  // Memes reperes verticaux que sous le cout, tires de la MEME liste de marques :
+  // c'est ce qui garantit que les deux dessins tombent au pixel pres l'un sous
+  // l'autre, ce qui est tout l'interet de les avoir separes.
+  const nTicks = marks.map(([pos]) => {
+    const px = (pos * W).toFixed(1);
+    return `<line x1="${px}" y1="0" x2="${px}" y2="${HN}" stroke="var(--line)"`
+      + ` stroke-width="1" opacity=".7" vector-effect="non-scaling-stroke"/>`;
+  }).join('');
+  const countPlot = curves
+    ? `<div class="erow2"><div class="eplot eplot-n">
+         <svg viewBox="0 0 ${W} ${HN}" preserveAspectRatio="none" aria-hidden="true">
+           ${nTicks}${curves}
+         </svg>
+       </div></div>`
+    : '';
+
   return `<div class="ecurve">
       <div class="estack">
       <div class="erow2">
         <div class="eplot">
           <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
             ${grid}
-            ${curves}
             ${area ? `<path d="${area}" fill="var(--sun-fill)"/>` : ''}
             ${d ? `<path d="${d}" fill="none" stroke="var(--sun)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>` : ''}
             ${temp}
@@ -1114,6 +1136,7 @@ function energyCurve(e) {
           <div class="ylab ylab-r">${yLabelsR}</div>
         </div>
       </div>
+      ${countPlot}
       <div class="ecurwrap"><div class="ecur" hidden></div></div>
       </div>
       <div class="erow2"><div class="eaxis">${axis}</div></div>
