@@ -480,14 +480,15 @@ body {
 .acts + .acts, .act-row + .act-state { margin-top: .8rem; }
 
 button.act {
-  min-height: 44px;
-  padding: .55rem .9rem;
+  min-height: 38px;
+  padding: .38rem .7rem;
   font: inherit;
+  font-size: .88rem;
   font-weight: 560;
   color: #fff;
   background: var(--cool);
   border: 1px solid transparent;
-  border-radius: 9px;
+  border-radius: 8px;
   cursor: pointer;
 }
 button.act:hover { filter: brightness(1.08); }
@@ -498,9 +499,9 @@ button.act-quiet { color: var(--ink); background: var(--card-2); border-color: v
 
 .act-date {
   display: inline-flex; align-items: center; gap: .4rem;
-  min-height: 44px; padding: 0 .6rem;
+  min-height: 38px; padding: 0 .55rem;
   font-size: .85rem; color: var(--ink-dim);
-  background: var(--card-2); border: 1px solid var(--line); border-radius: 9px;
+  background: var(--card-2); border: 1px solid var(--line); border-radius: 8px;
 }
 .act-date input { font: inherit; color: var(--ink); background: none; border: 0; }
 
