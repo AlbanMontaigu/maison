@@ -1043,39 +1043,43 @@ function energyCurve(e) {
   // pile repondrait « combien d'appareils » alors que la question est « combien
   // de clim, et combien de ventilos » -- deux nombres, deux barres.
   const counts = deviceCounts(t0, t1);
-  let bars = '';
+  let curves = '';
   if (counts.max > 0 && counts.ts.length) {
     const step = counts.ts.length > 1 ? (counts.ts[1] - counts.ts[0]) : 600;
     // UNE BANDE PAR SERIE, empilees au pied du dessin plutot que superposees au
-    // meme endroit : a nombre egal, deux barres au meme point se cachent l'une
-    // l'autre et « 2 clim ET 2 ventilos » se lirait « 2 appareils ». Elles ne
-    // prennent que le bas du dessin -- le cout garde le haut, ou sont ses pointes.
+    // meme endroit : a nombre egal, deux traits au meme point se confondent et
+    // « 2 clim ET 2 ventilos » se lirait « 2 appareils ». Elles ne prennent que
+    // le bas du dessin -- le cout garde le haut, ou sont ses pointes.
     const BAND = H * 0.17, GAP = H * 0.04;
     const series = [{ arr: counts.ac, color: 'var(--cool)', base: H },
                     { arr: counts.fan, color: 'var(--fan)', base: H - BAND - GAP }];
     for (const se of series) {
-      // Valeurs egales consecutives fusionnees en UN rect. Sans ca, un releve
-      // toutes les 10 min dessine un peigne de barres separees par un blanc, et
-      // ce blanc se lit comme des arrets qui n'ont jamais eu lieu.
-      let runFrom = null, runVal = 0;
-      const flush = (endTs) => {
-        if (runFrom !== null && runVal) {
-          const x0 = x(runFrom), x1 = x(Math.min(endTs, t1));
-          const h = (runVal / counts.max) * BAND;
-          bars += `<rect x="${x0.toFixed(2)}" y="${(se.base - h).toFixed(1)}"`
-            + ` width="${Math.max(0.8, x1 - x0).toFixed(2)}" height="${h.toFixed(1)}"`
-            + ` fill="${se.color}" opacity=".45"/>`;
-        }
-        runFrom = null;
-      };
+      const pts = [];
       for (let i = 0; i < counts.ts.length; i++) {
         const tsi = counts.ts[i];
-        if (tsi < t0 || tsi > t1) { flush(tsi); runVal = 0; continue; }
-        const v = se.arr[i];
-        if (runFrom === null) { runFrom = tsi; runVal = v; }
-        else if (v !== runVal) { flush(tsi); runFrom = tsi; runVal = v; }
+        if (tsi < t0 || tsi > t1) continue;
+        pts.push([tsi, se.arr[i]]);
       }
-      flush(counts.ts[counts.ts.length - 1] + step);
+      if (!pts.length) continue;
+      const yv = (v) => se.base - (v / counts.max) * BAND;
+      // EN MARCHES, jamais lissee : un nombre d'appareils est un entier qui
+      // saute de 1 a 2. Un trait oblique entre les deux dessinerait un 1,5 qui
+      // n'a jamais tourne, et c'est precisement le chiffre qu'on vient lire.
+      let dd = `M${x(pts[0][0]).toFixed(2)},${yv(pts[0][1]).toFixed(1)}`;
+      for (let k = 1; k < pts.length; k++) {
+        if (pts[k][1] === pts[k - 1][1]) continue;
+        const px = x(pts[k][0]).toFixed(2);
+        dd += `L${px},${yv(pts[k - 1][1]).toFixed(1)}L${px},${yv(pts[k][1]).toFixed(1)}`;
+      }
+      // Le dernier releve vaut jusqu'au tick suivant : sans ce prolongement, une
+      // marche en cours se termine au dernier point et se lit comme un arret.
+      const endX = x(Math.min(pts[pts.length - 1][0] + step, t1));
+      dd += `L${endX.toFixed(2)},${yv(pts[pts.length - 1][1]).toFixed(1)}`;
+      const x0 = x(pts[0][0]).toFixed(2), b = se.base.toFixed(1);
+      curves += `<path d="${dd}L${endX.toFixed(2)},${b}L${x0},${b}Z"`
+        + ` fill="${se.color}" opacity=".14"/>`;
+      curves += `<path d="${dd}" fill="none" stroke="${se.color}" stroke-width="1.3"`
+        + ` opacity=".9" vector-effect="non-scaling-stroke"/>`;
     }
   }
 
@@ -1097,11 +1101,10 @@ function energyCurve(e) {
   return `<div class="ecurve">
       <div class="estack">
       <div class="erow2">
-        <span class="elab" title="coût de l'électricité, °dehors">coût</span>
         <div class="eplot">
           <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
             ${grid}
-            ${bars}
+            ${curves}
             ${area ? `<path d="${area}" fill="var(--sun-fill)"/>` : ''}
             ${d ? `<path d="${d}" fill="none" stroke="var(--sun)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>` : ''}
             ${temp}
@@ -1113,8 +1116,8 @@ function energyCurve(e) {
       </div>
       <div class="ecurwrap"><div class="ecur" hidden></div></div>
       </div>
-      <div class="erow2"><span class="elab"></span><div class="eaxis">${axis}</div></div>
-      <div class="eleg">${hasCost ? `pointe ${esc(fmt(hi))}` : 'coût du jour publié demain — Enedis diffère'}${tempLbl ? ` · ${esc(tempLbl)}` : ''}${counts.max ? ` · barres : combien en marche à la fois (max ${counts.max}) <i class="ekey" style="background:var(--cool)"></i>clim <i class="ekey" style="background:var(--fan)"></i>ventilo` : ''}</div>
+      <div class="erow2"><div class="eaxis">${axis}</div></div>
+      <div class="eleg">${hasCost ? `pointe ${esc(fmt(hi))}` : 'coût du jour publié demain — Enedis diffère'}${tempLbl ? ` · ${esc(tempLbl)}` : ''}${counts.max ? ` · combien en marche à la fois (max ${counts.max}) <i class="ekey" style="background:var(--cool)"></i>clim <i class="ekey" style="background:var(--fan)"></i>ventilo` : ''}</div>
     </div>`;
 }
 
