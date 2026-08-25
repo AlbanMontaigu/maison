@@ -2082,9 +2082,9 @@ const tomorrowKey = () => dayKey(Math.floor(Date.now() / 1000) + 86400);
 // ou d'appareil code en dur.
 const KIND_UI = {
   ac:    { label: 'Clim',        libre: 'Clim pilotée normalement par le moteur.',
-           on: 'Allumer', off: 'Couper', coupe: 'Clim coupée', onIcon: '❄️', offIcon: '⚫' },
+           on: 'Allumer', off: 'Couper', coupe: 'Clim coupée', onIcon: '❄️', offIcon: '❌' },
   fan:   { label: 'Ventilateur', libre: 'Ventilateur piloté normalement par le moteur.',
-           on: 'Allumer', off: 'Couper', coupe: 'Ventilateur coupé', onIcon: '🌀', offIcon: '⚫' },
+           on: 'Allumer', off: 'Couper', coupe: 'Ventilateur coupé', onIcon: '🌀', offIcon: '❌' },
   velux: { label: 'Volet',       libre: 'Volet piloté normalement par le moteur.',
            on: 'Ouvrir', off: 'Fermer', fige: 'Figer', coupe: 'Volet figé — il reste où il est',
            onIcon: '⬆️', offIcon: '⬇️', figeIcon: '📌' },
