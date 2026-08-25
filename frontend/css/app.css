@@ -464,6 +464,13 @@ button.act-quiet { color: var(--ink); background: var(--card-2); border-color: v
 /* Les deux lignes de bornage se suivent de pres : elles repondent a la meme
    question de deux facons, elles doivent se lire comme une paire. */
 .act-dur + .act-dur { margin-top: .3rem; }
+/* Le coude : il dit que ces lignes DEPENDENT des verbes du dessus. Un simple
+   retrait se lirait comme un espacement, pas comme un rattachement. Il est
+   aria-hidden -- c'est un signe de mise en page, pas un mot a lire. */
+.act-elbow {
+  flex: 0 0 auto; width: 1rem; margin-left: .35rem;
+  color: var(--ink-dim); opacity: .8; font-size: 1.05rem; line-height: 1;
+}
 /* Le libelle des deux lignes a la MEME largeur, sinon les controles ne
    s'alignent pas et la paire ne se lit plus comme telle. */
 button.dur-mode { min-width: 5.4rem; }

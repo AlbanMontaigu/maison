@@ -2026,12 +2026,16 @@ function durationRow(zoneName, kind) {
   const cur = durPick.get(key) || DEFAULT_DUR;
   const opts = DURATIONS.map((d) =>
     `<option value="${d.id}"${d.id === cur ? ' selected' : ''}>${esc(d.label)}</option>`).join('');
-  return `<div class="act-row act-dur">
+  // Les deux lignes sont en RETRAIT sous les verbes, precedees d'un coude : elles
+  // ne sont pas des choix de meme rang, elles bornent ceux du dessus. Le retrait
+  // seul se lit comme un espacement ; le coude dit la dependance.
+  const elbow = '<span class="act-elbow" aria-hidden="true">↳</span>';
+  return `<div class="act-row act-dur">${elbow}
       <button type="button" class="dur dur-mode${mode === 'dur' ? ' on' : ''}"
         data-mode="dur" ${z} aria-pressed="${mode === 'dur'}">pendant</button>
       <select class="dur-sel" ${z}>${opts}</select>
     </div>
-    <div class="act-row act-dur">
+    <div class="act-row act-dur">${elbow}
       <button type="button" class="dur dur-mode${mode === 'date' ? ' on' : ''}"
         data-mode="date" ${z} aria-pressed="${mode === 'date'}">jusqu'à</button>
       <input type="date" class="dur-date" ${z}
