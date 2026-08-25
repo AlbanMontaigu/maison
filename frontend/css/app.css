@@ -456,9 +456,10 @@ button.act-quiet { color: var(--ink); background: var(--card-2); border-color: v
 /* Le champ date est une valeur parmi les termes : il s'aligne sur les puces et
    se marque comme elles quand c'est LUI qui est retenu. */
 .dur-date.on, .abs-date.on { border-color: var(--ink); color: var(--ink); font-weight: 560; }
-/* Le retour a l'automatique, separe des deux verbes et de leur duree : le trait
-   marque la fin de ce que le reglage gouverne. */
-.act-auto { margin-top: .6rem; padding-top: .6rem; border-top: 1px dashed var(--edge); }
+/* Le retour a l'automatique ouvre le bloc : c'est l'etat normal, celui dont les
+   consignes sont un ecart. Le trait qui le suit marque le debut de ce que la
+   duree gouverne -- et dit du meme coup qu'elle ne le gouverne pas, lui. */
+.act-auto { margin-bottom: .6rem; padding-bottom: .6rem; border-bottom: 1px dashed var(--edge); }
 
 /* Les deux lignes de bornage se suivent de pres : elles repondent a la meme
    question de deux facons, elles doivent se lire comme une paire. */

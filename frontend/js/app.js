@@ -2129,13 +2129,14 @@ function kindBlock(kind, info, zoneName, absent) {
        les pièces. Ces boutons reprendront la main au retour.</p>`
     : '';
 
-  // Les deux verbes, puis LEUR duree, puis -- separe -- le retour a
-  // l'automatique. Le trait dit ou s'arrete la portee du reglage.
+  // L'automatique EN TETE : c'est l'etat normal de la maison, celui dont tout le
+  // reste est un ecart. Le trait qui le suit ouvre le bloc des consignes -- les
+  // deux verbes et la duree qui les borne.
   return `<div class="act-kind"><h4>${ui.label}</h4>
     ${note}
+    <div class="act-row act-auto">${auto}</div>
     <div class="act-row">${acts.join('')}</div>
     ${durationRow(zoneName, kind)}
-    <div class="act-row act-auto">${auto}</div>
   </div>`;
 }
 
