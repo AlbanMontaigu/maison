@@ -460,9 +460,12 @@ button.act-quiet { color: var(--ink); background: var(--card-2); border-color: v
    marque la fin de ce que le reglage gouverne. */
 .act-auto { margin-top: .6rem; padding-top: .6rem; border-top: 1px dashed var(--edge); }
 
-/* Les valeurs sont en retrait sous leurs onglets : la hierarchie se voit sans
-   qu'on ait a lire les libelles. */
-.act-vals { margin-top: .3rem; padding-left: .9rem; }
+/* Les deux lignes de bornage se suivent de pres : elles repondent a la meme
+   question de deux facons, elles doivent se lire comme une paire. */
+.act-dur + .act-dur { margin-top: .3rem; }
+/* Le libelle des deux lignes a la MEME largeur, sinon les controles ne
+   s'alignent pas et la paire ne se lit plus comme telle. */
+button.dur-mode { min-width: 5.4rem; }
 button.dur {
   min-height: 34px; padding: .3rem .55rem;
   font: inherit; font-size: .82rem;
@@ -477,6 +480,13 @@ button.dur.on { color: var(--ink); background: var(--card); border-color: var(--
    quand actifs, pour qu'on voie lequel des deux controles est en jeu. */
 button.dur-mode.on { color: var(--card); background: var(--ink); border-color: var(--ink); }
 button.dur:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* Le select vit a cote de son libelle : meme hauteur, meme famille que le champ
+   date de la ligne du dessous, pour que les deux lignes se lisent en paire. */
+.dur-sel {
+  min-height: 34px; padding: 0 .4rem; font: inherit; font-size: .82rem;
+  color: var(--ink); background: var(--card); border: 1px solid var(--line);
+  border-radius: 8px;
+}
 .dur-date, .abs-date {
   min-height: 34px; padding: 0 .4rem; font: inherit; font-size: .82rem;
   color: var(--ink); background: var(--card); border: 1px solid var(--line);

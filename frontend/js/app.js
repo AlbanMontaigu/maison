@@ -1966,14 +1966,11 @@ const DURATIONS = [
   { id: '3h', label: '3 h', hours: 3 },
   { id: '6h', label: '6 h', hours: 6 },
 ];
-// Termes : des points d'arret, pas des durees. `until` null = ce soir minuit.
-const ENDPOINTS = [
-  { id: 'soir', label: 'ce soir', until: null },
-  { id: 'demain', label: 'demain', tomorrow: true },
-];
-const DEFAULT_END = 'soir';
+// Plus de « ce soir » / « demain » en puces : une date les exprime tous les deux.
+// La date du JOUR veut dire « jusqu'a ce soir » (la consigne expire a minuit),
+// celle de demain veut dire « demain ». Un champ suffit donc, et il evite
+// d'avoir a deviner ce que « demain » recouvre exactement.
 const DEFAULT_DUR = '3h';
-const endPick = new Map();   // "zone|kind" -> id du terme choisi
 // Selection par appareil, gardee hors du DOM : le panneau est re-rendu apres
 // chaque commande, et un choix stocke dans le HTML disparaitrait a ce moment-la.
 const durPick = new Map();
@@ -2003,6 +2000,8 @@ function hoursUntilEndOf(dayIso) {
 //   forceHours : duree en heures pour un forcage (marche OU arret minute)
 //   dayUntil   : date d'echeance pour une consigne a l'echelle du jour
 //                (undefined = « ce soir », pas de date a poser)
+const todayKey = () => dayKey(Math.floor(Date.now() / 1000));
+
 function durationSpec(zoneName, kind) {
   const key = durKey(zoneName, kind);
   if ((durMode.get(key) || 'dur') === 'dur') {
@@ -2010,18 +2009,9 @@ function durationSpec(zoneName, kind) {
     const d = DURATIONS.find((x) => x.id === id) || DURATIONS[2];
     return { id, label: d.label, forceHours: d.hours, dayScale: false };
   }
-  // Terme : « ce soir », « demain », ou une date. Tous de meme nature -- un
-  // point d'arret -- donc un seul choix parmi eux, dont la date fait partie.
-  const id = endPick.get(key) || DEFAULT_END;
-  if (id === 'date') {
-    const day = durDate.get(key) || null;
-    return { id, label: day ? frDate(day) : 'une date', dayScale: true, until: day,
-             forceHours: day ? hoursUntilEndOf(day) : null, missing: !day };
-  }
-  const e = ENDPOINTS.find((x) => x.id === id) || ENDPOINTS[0];
-  const until = e.tomorrow ? tomorrowKey() : null;
-  return { id, label: e.label, dayScale: true, until,
-           forceHours: hoursUntilEndOf(until) };
+  const day = durDate.get(key) || todayKey();
+  return { id: 'date', label: frDate(day), dayScale: true, until: day,
+           forceHours: hoursUntilEndOf(day) };
 }
 
 function durationRow(zoneName, kind) {
@@ -2030,30 +2020,23 @@ function durationRow(zoneName, kind) {
   const z = `data-zone="${esc(zoneName)}" data-kind="${esc(kind)}"`;
   // Le choix du MODE d'abord. Un seul controle est ensuite montre : c'est le
   // seul moyen qu'« ou bien, ou bien » se lise sans avoir a l'expliquer.
-  const tabs = [['dur', 'pendant'], ['date', "jusqu'à"]].map(([id, lbl]) =>
-    `<button type="button" class="dur dur-mode${id === mode ? ' on' : ''}"
-      data-mode="${id}" ${z} aria-pressed="${id === mode}">${lbl}</button>`).join('');
-
-  let body;
-  if (mode === 'dur') {
-    const cur = durPick.get(key) || DEFAULT_DUR;
-    body = DURATIONS.map((d) =>
-      `<button type="button" class="dur${d.id === cur ? ' on' : ''}" data-dur="${d.id}" ${z}
-        aria-pressed="${d.id === cur}">${esc(d.label)}</button>`).join('');
-  } else {
-    const cur = endPick.get(key) || DEFAULT_END;
-    body = ENDPOINTS.map((e) =>
-      `<button type="button" class="dur${e.id === cur ? ' on' : ''}" data-end="${e.id}" ${z}
-        aria-pressed="${e.id === cur}">${esc(e.label)}</button>`).join('')
-      + `<input type="date" class="dur-date${cur === 'date' ? ' on' : ''}" ${z}
-          value="${esc(durDate.get(key) || '')}"
-          min="${dayKey(Math.floor(Date.now() / 1000))}">`;
-  }
-  // Deux rangees : les onglets, puis les valeurs. Tout sur une seule debordait
-  // au telephone -- et melanger « a quelle question on repond » avec « quelle
-  // reponse » sur la meme ligne les met au meme rang, ce qu'ils ne sont pas.
-  return `<div class="act-row act-dur">${tabs}</div>
-    <div class="act-row act-dur act-vals">${body}</div>`;
+  // Chaque facon de borner sur SA ligne, avec son controle juste a cote : le
+  // libelle choisit, le controle a cote precise. Les deux restent visibles --
+  // c'est le libelle actif qui dit lequel des deux compte.
+  const cur = durPick.get(key) || DEFAULT_DUR;
+  const opts = DURATIONS.map((d) =>
+    `<option value="${d.id}"${d.id === cur ? ' selected' : ''}>${esc(d.label)}</option>`).join('');
+  return `<div class="act-row act-dur">
+      <button type="button" class="dur dur-mode${mode === 'dur' ? ' on' : ''}"
+        data-mode="dur" ${z} aria-pressed="${mode === 'dur'}">pendant</button>
+      <select class="dur-sel" ${z}>${opts}</select>
+    </div>
+    <div class="act-row act-dur">
+      <button type="button" class="dur dur-mode${mode === 'date' ? ' on' : ''}"
+        data-mode="date" ${z} aria-pressed="${mode === 'date'}">jusqu'à</button>
+      <input type="date" class="dur-date" ${z}
+        value="${esc(durDate.get(key) || todayKey())}" min="${todayKey()}">
+    </div>`;
 }
 
 // Un bouton d'action, arme ou visiblement desarme AVEC sa raison. Un bouton qui
@@ -2333,9 +2316,7 @@ function bindActions() {
       if (dur.dataset.absMode) {
         absentDate = dur.dataset.absMode === 'jour' ? null : (absentDate || '');
       }
-      else if (dur.dataset.end) {
-        endPick.set(durKey(dur.dataset.zone, dur.dataset.kind), dur.dataset.end);
-      } else durPick.set(durKey(dur.dataset.zone, dur.dataset.kind), dur.dataset.dur);
+      else durPick.set(durKey(dur.dataset.zone, dur.dataset.kind), dur.dataset.dur);
       renderActions();
       return;
     }
@@ -2355,12 +2336,20 @@ function bindActions() {
   // l'action qui agit. Le sélecteur natif émet `change` pendant qu'on fait
   // défiler les jours — on pouvait couper une clim en explorant.
   $('actions').addEventListener('change', (ev) => {
+    const sel = ev.target.closest('select.dur-sel');
+    if (sel) {
+      const k = durKey(sel.dataset.zone, sel.dataset.kind);
+      durPick.set(k, sel.value);
+      durMode.set(k, 'dur');   // toucher a un controle, c'est choisir sa ligne
+      renderActions();
+      return;
+    }
     const i = ev.target.closest('input[type=date]');
     if (!i || !i.value) return;
     if (i.classList.contains('dur-date')) {
       const k = durKey(i.dataset.zone, i.dataset.kind);
       durDate.set(k, i.value);
-      endPick.set(k, 'date');   // choisir une date, c'est choisir ce terme-la
+      durMode.set(k, 'date');   // toucher a un controle, c'est choisir sa ligne
     } else if (i.dataset.for === 'absent') {
       absentDate = i.value;
     }
