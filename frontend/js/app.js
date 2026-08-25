@@ -852,98 +852,34 @@ function energyMarks(t0, t1) {
 // que la courbe de charge (30 min) : chaque segment est donc place par son
 // HORODATAGE, jamais par son rang. Un appareil qui n'a pas tourne du tout sur
 // la fenetre n'a pas de piste -- une ligne vide se lit comme une panne.
-const DEVICE_KINDS = [['ac', 'clim', 'var(--cool)'], ['fan', 'ventilo', 'var(--fan)']];
+const DEVICE_KINDS = [['ac', 'clim'], ['fan', 'ventilo']];
 
-function energyDevices(t0, t1) {
+// Les series par appareil, pour la bulle au survol. Elles dessinaient aussi une
+// piste par appareil sous la courbe ; ces pistes sont parties -- le comptage
+// clim/ventilo au pied de la courbe dit « combien tourne » d'un coup d'oeil, et
+// le detail piece par piece vit deja sur la carte de chaque piece. Reste la
+// donnee, que la bulle interroge.
+function energyDevices() {
   const ts = payload.t || [];
-  const span = t1 - t0 || 1;
-  // Duree d'un tick, pour donner sa largeur au dernier segment : sans elle, une
-  // marche encore en cours au dernier releve serait dessinee comme un trait.
-  const step = ts.length > 1 ? (ts[1] - ts[0]) : 600;
-  const rows = [];
   const devs = [];
   const vlx = [];
-  let velux = false;
-
   for (const z of payload.zones || []) {
-    for (const [kind, label, color] of DEVICE_KINDS) {
+    for (const [kind, label] of DEVICE_KINDS) {
       // `ac` et `fan` sont RUN-LENGTH ENCODES dans le payload (44 paires pour
-      // 1015 ticks) : les indexer directement ne trouve jamais rien, et une
-      // piste absente se lit « cet appareil n'a pas tourne ». Il faut expand().
+      // 1015 ticks) : les indexer directement ne trouve jamais rien. expand().
       const raw = (z.series || {})[kind];
       if (!raw || !raw.length) continue;
-      const ser = expand(raw, ts.length);
-      let rects = '', any = false;
-      let runFrom = null;
-      for (let i = 0; i < ts.length; i++) {
-        const inWin = ts[i] >= t0 && ts[i] <= t1;
-        const on = inWin && !!ser[i];
-        if (on && runFrom === null) runFrom = ts[i];
-        if (!on && runFrom !== null) {
-          const x0 = ((runFrom - t0) / span) * 1000;
-          const x1 = ((Math.min(ts[i], t1) - t0) / span) * 1000;
-          rects += `<rect x="${x0.toFixed(1)}" y="0" width="${Math.max(1, x1 - x0).toFixed(1)}" height="10" fill="${color}"/>`;
-          any = true;
-          runFrom = null;
-        }
-      }
-      if (runFrom !== null) {
-        const x0 = ((runFrom - t0) / span) * 1000;
-        const x1 = ((Math.min(ts[ts.length - 1] + step, t1) - t0) / span) * 1000;
-        rects += `<rect x="${x0.toFixed(1)}" y="0" width="${Math.max(1, x1 - x0).toFixed(1)}" height="10" fill="${color}"/>`;
-        any = true;
-      }
-      if (!any) continue;
-      rows.push(deviceRow(`${label} ${z.name}`, rects));
-      devs.push({ name: `${label} ${z.name}`, ser });
+      devs.push({ name: `${label} ${z.name}`, ser: expand(raw, ts.length) });
     }
   }
-
-  // Les volets ferment la marche, et se dessinent AUTREMENT : une barre dont la
-  // HAUTEUR est le pourcentage d'ouverture, pas un bloc plein. Ils ne consomment
-  // rien -- leur donner la meme forme que la clim les ferait lire comme une
-  // depense sur le trait du dessus. Position 0 (ferme) garde un filet visible :
-  // « ferme » et « pas de mesure » ne doivent pas se ressembler.
   for (const z of payload.zones || []) {
     const raw = (z.series || {}).velux;
     if (!raw || !raw.length) continue;
-    const ser = expand(raw, ts.length);
-    let rects = '', any = false, runFrom = null, runVal = null;
-    const flush = (endTs) => {
-      if (runFrom === null) return;
-      const x0 = ((runFrom - t0) / span) * 1000;
-      const x1 = ((Math.min(endTs, t1) - t0) / span) * 1000;
-      const h = Math.max(1.5, (runVal / 100) * 10);
-      rects += `<rect x="${x0.toFixed(1)}" y="${(10 - h).toFixed(1)}"`
-        + ` width="${Math.max(1, x1 - x0).toFixed(1)}" height="${h.toFixed(1)}"`
-        + ` fill="var(--velux)" opacity=".8"/>`;
-      any = true;
-      runFrom = null;
-    };
-    for (let i = 0; i < ts.length; i++) {
-      const inWin = ts[i] >= t0 && ts[i] <= t1;
-      const v = inWin ? ser[i] : null;
-      if (v == null) { flush(ts[i]); runVal = null; continue; }
-      if (runFrom === null) { runFrom = ts[i]; runVal = v; }
-      else if (v !== runVal) { flush(ts[i]); runFrom = ts[i]; runVal = v; }
-    }
-    flush(ts[ts.length - 1] + step);
-    if (any) {
-      rows.push(deviceRow(`volet ${z.name}`, rects));
-      // Le nom de la piece SEUL : la bulle les regroupe sous « volets : », et
-      // repeter le mot a chaque entree la remplirait de bruit.
-      vlx.push({ name: z.name, ser });
-      velux = true;
-    }
+    // Le nom de la piece SEUL : la bulle les regroupe sous « volets : », et
+    // repeter le mot a chaque entree la remplirait de bruit.
+    vlx.push({ name: z.name, ser: expand(raw, ts.length) });
   }
-  return { html: rows.join(''), velux, devs, vlx };
-}
-
-function deviceRow(name, rects) {
-  return `<div class="erow2">
-      <span class="elab" title="${esc(name)}">${esc(name)}</span>
-      <div class="estrip"><svg viewBox="0 0 1000 10" preserveAspectRatio="none" aria-hidden="true">${rects}</svg></div>
-    </div>`;
+  return { devs, vlx };
 }
 
 // Combien d'appareils tournent EN MEME TEMPS, la clim d'un cote, le ventilo de
@@ -1097,7 +1033,7 @@ function energyCurve(e) {
     tempLbl = `dehors ${deg(lo)}–${deg(hiT)}°`;
   }
 
-  const devices = energyDevices(t0, t1);
+  const devices = energyDevices();
 
   // Le comptage des appareils, en barres au PIED de la courbe de cout : c'est
   // lui qui l'explique. Dessine avant le trait du cout, donc derriere -- un fond
@@ -1175,12 +1111,10 @@ function energyCurve(e) {
           <div class="ylab ylab-r">${yLabelsR}</div>
         </div>
       </div>
-      ${devices.html ? `<div class="erow2 esection"><span class="elab"></span><span class="esectlab">appareils</span></div>` : ''}
-      ${devices.html}
       <div class="ecurwrap"><div class="ecur" hidden></div></div>
       </div>
       <div class="erow2"><span class="elab"></span><div class="eaxis">${axis}</div></div>
-      <div class="eleg">${hasCost ? `pointe ${esc(fmt(hi))}` : 'coût du jour publié demain — Enedis diffère'}${tempLbl ? ` · ${esc(tempLbl)}` : ''}${counts.max ? ` · barres : combien en marche à la fois (max ${counts.max}) <i class="ekey" style="background:var(--cool)"></i>clim <i class="ekey" style="background:var(--fan)"></i>ventilo` : ''}${devices.velux ? ' · volets : hauteur = ouverture' : ''}</div>
+      <div class="eleg">${hasCost ? `pointe ${esc(fmt(hi))}` : 'coût du jour publié demain — Enedis diffère'}${tempLbl ? ` · ${esc(tempLbl)}` : ''}${counts.max ? ` · barres : combien en marche à la fois (max ${counts.max}) <i class="ekey" style="background:var(--cool)"></i>clim <i class="ekey" style="background:var(--fan)"></i>ventilo` : ''}</div>
     </div>`;
 }
 
@@ -1962,10 +1896,9 @@ function bindEnergyTip() {
   const tip = $('tip');
   const host = $('banners');
   host.addEventListener('pointermove', (ev) => {
-    // On ecoute sur tout le bloc, pas seulement sur le trace : les pistes
-    // d'appareils sont precisement l'endroit ou l'on veut lire « a cet instant,
-    // qu'est-ce qui tournait ». La geometrie reste celle du trace, qui a la
-    // meme largeur que les pistes (meme gouttiere).
+    // On ecoute sur tout le bloc, pas seulement sur le trace : la bulle repond
+    // « a cet instant, qu'est-ce qui tournait », et on la cherche en promenant
+    // le doigt sur le bloc entier. La geometrie reste celle du trace.
     const block = ev.target.closest('.ecurve');
     const plot = block && block.querySelector('.eplot');
     if (!plot || !ecurve) { tip.hidden = true; return; }
@@ -1985,9 +1918,9 @@ function bindEnergyTip() {
     const oOk = o && Math.abs(o[0] - ts) <= 1800;
     // Quels appareils tournaient a cet instant. Le rang est cherche dans l'axe
     // des ticks du moteur, JAMAIS dans celui de la courbe de charge : ils n'ont
-    // pas le meme pas. Seuls les consommateurs sont listes -- l'ouverture d'un
-    // volet se lit deja a la hauteur de sa barre, et neuf lignes de bulle a
-    // chaque survol la rendraient illisible.
+    // pas le meme pas. Depuis que les pistes ont disparu, cette bulle est le
+    // SEUL endroit de la vue d'ensemble qui nomme les pieces concernees -- les
+    // barres au pied de la courbe ne disent qu'un nombre.
     let onNow = '';
     if (ecurve.devs && ecurve.devs.length && ecurve.ts && ecurve.ts.length) {
       let bi = 0, bd = Infinity;
@@ -2000,10 +1933,11 @@ function bindEnergyTip() {
         onNow = names.length
           ? `<br><span class="dim">en marche :</span> ${esc(names.join(', '))}`
           : '<br><span class="dim">aucun appareil en marche</span>';
-        // Les volets sur UNE ligne, pas une par volet : ils ne consomment rien,
-        // et deux lignes de plus a chaque survol pousseraient hors de l'ecran la
-        // seule chose qu'on est venu lire. Une position absente est passee sous
-        // silence -- « pas de mesure » n'est pas « ferme ».
+        // Les volets sur UNE ligne, pas une par volet : deux lignes de plus a
+        // chaque survol pousseraient hors de l'ecran ce qu'on est venu lire.
+        // Ils n'ont plus de piste a eux, donc c'est ici ou nulle part dans la
+        // vue d'ensemble. Une position absente est passee sous silence --
+        // « pas de mesure » n'est pas « ferme ».
         const vs = (ecurve.vlx || [])
           .filter((v) => v.ser[bi] != null)
           // Parentheses et pas un espace : « Salle de Bains 1 » finit par un

@@ -118,19 +118,10 @@ body {
   font-size: .68rem; font-weight: 660; color: var(--ink-dim);
   text-transform: uppercase; letter-spacing: .03em;
 }
-/* Charniere entre la courbe (coût + dehors) et les pistes d'appareils : sans
-   elle les deux lectures s'enchainaient sans rien pour dire qu'on change de
-   sujet, alors que la courbe est un COUT et les pistes une ACTIVITE. */
-.esection .esectlab {
-  font-size: .62rem; text-transform: uppercase; letter-spacing: .04em;
-  color: var(--ink-dim); opacity: .75;
-}
-.esection { margin: .35rem 0 .15rem; }
 /* Courbe du coût : niveau maison, donc pleine largeur du bloc. */
 .ecurve { margin-top: .6rem; }
-/* Gouttiere a gauche : le trace, les pistes d'appareils et l'axe partagent la
-   MEME abscisse. Sans cette colonne, poser un libelle a cote d'une piste la
-   decalerait du trait qu'elle est censee expliquer. */
+/* Gouttiere a gauche : le trace et l'axe partagent la MEME abscisse. Sans cette
+   colonne, poser un libelle a cote du trace le decalerait de l'axe. */
 .ecurve { --egut: 6.5rem; --egap: .45rem; }
 .erow2 { display: flex; align-items: center; gap: var(--egap); }
 /* Le curseur traverse le trace ET les pistes : c'est la meme abscisse, et
@@ -151,16 +142,12 @@ body {
   text-align: right; overflow: hidden; word-break: break-word;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
 }
-.erow2 .eplot, .erow2 .eaxis, .estrip { flex: 1 1 auto; min-width: 0; }
-.estrip { background: var(--card-2); border-radius: 2px; overflow: hidden; }
+.erow2 .eplot, .erow2 .eaxis { flex: 1 1 auto; min-width: 0; }
 /* Le contexte de positionnement est le TRACE, pas le bloc : les etiquettes
    d'ordonnee et le curseur se placent en % de la hauteur du dessin, et l'axe
    des temps vit dessous, hors de ce repere. */
 .eplot { position: relative; }
 .ecurve svg { width: 100%; height: 62px; display: block; }
-/* Apres la regle ci-dessus, et pas avant : a specificite egale c'est l'ordre
-   qui tranche, et les pistes d'appareils heritaient des 62 px du trace. */
-.ecurve .estrip svg { height: 10px; }
 
 /* Ordonnee : chiffres en HTML par-dessus le SVG (celui-ci est etire, un <text>
    y serait comprime). Meme technique que les courbes de piece. */
