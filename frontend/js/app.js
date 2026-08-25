@@ -720,6 +720,16 @@ function zoneCard(zone, f, t, marks, nowIdx) {
   if (!zone.has_ac && !zone.has_fan && !zone.has_velux) sub.push('aucun appareil ici');
   if (c.day_peak != null) sub.push(`plus chaud aujourd'hui : ${c.day_peak}°`);
 
+  const open = zoneFromHash() === zone.name;
+  // Sur la page d'accueil, la carte d'une piece repond a UNE question : y
+  // fait-il la bonne temperature ? La reponse tient dans le verdict, la bande
+  // visee et la courbe qui la traverse. Le detail par appareil -- pastilles
+  // d'etat, pistes decision / occupation / clim / ventilo / volet / soleil --
+  // raconte le COMMENT : six lignes de plus par piece, six fois par page, pour
+  // une question qu'on ne se pose qu'une piece a la fois. Il reste entier sur la
+  // page de la piece, ou l'on est precisement venu pour ca.
+  const full = open;
+
   // Sur la semaine, l'instant cede la place a la fenetre : l'action du moment,
   // son motif et l'anciennete des appareils decrivent un tick parmi mille.
   const head = isRetro()
@@ -729,9 +739,7 @@ function zoneCard(zone, f, t, marks, nowIdx) {
       <span class="emo">${m.emoji}</span><span class="lab">${esc(m.label)}</span>
     </div>
     <div class="why">${plainState(c)}</div>
-    <div class="devs">${devs}</div>`;
-
-  const open = zoneFromHash() === zone.name;
+    ${full ? `<div class="devs">${devs}</div>` : ''}`;
   const at = acted.get(zone.name);
   // `generated_at` est l'heure de l'EXPORT, pas celle du navigateur : la
   // pastille disparait quand la maison a reellement reparle, pas apres un delai
@@ -751,10 +759,10 @@ function zoneCard(zone, f, t, marks, nowIdx) {
     ${head}
     <div class="tracks">
       ${trackRow('température', 'Noir : la pièce. Bleu : dehors, mesuré. Pointillés violets : dehors, prévu. Fond vert : l\'objectif de température.', chartSvg(f, t, marks, nowIdx))}
-      ${(() => { const sun = f.has.solar ? sunSvg(f.solar, nowIdx, marks, f.fc && f.fc.solar) : '';
+      ${!full ? '' : (() => { const sun = f.has.solar ? sunSvg(f.solar, nowIdx, marks, f.fc && f.fc.solar) : '';
           return sun ? trackRow('soleil', 'Rayonnement reçu par la fenêtre de cette pièce, en W/m²', sun) : ''; })()}
-      ${trackRow('décision', "Ce que la maison a décidé de faire à cet instant — une seule chose à la fois", trackSvg('act', nowIdx, f.act, (a) => a ? { fill: colorFor(a), op: meta(a).active || isAlert(a) ? .95 : PASSIVE_OP } : null))}
-      ${f.has.occ
+      ${!full ? '' : trackRow('décision', "Ce que la maison a décidé de faire à cet instant — une seule chose à la fois", trackSvg('act', nowIdx, f.act, (a) => a ? { fill: colorFor(a), op: meta(a).active || isAlert(a) ? .95 : PASSIVE_OP } : null))}
+      ${!full ? '' : f.has.occ
         // Le vecu et le prevu se dessinent PAREIL. L'occupation est une regle,
         // pas une prevision : les fenetres sont dans les reglages et l'agenda du
         // jour est deja interprete, donc la barre de 22h est aussi certaine que
@@ -764,13 +772,13 @@ function zoneCard(zone, f, t, marks, nowIdx) {
             trackSvg('occ', nowIdx, f.occ.map((v, i) => (v != null ? v : f.occPlan[i])),
               (v) => occMeta(v)))
         : missingRow('occupation')}
-      ${!zone.has_ac ? '' : f.has.ac
+      ${!full || !zone.has_ac ? '' : f.has.ac
         ? trackRow('clim', 'Clim en marche, allumée par la maison', trackSvg('ac', nowIdx, f.ac, (v) => v ? { fill: 'var(--cool)' } : null))
         : missingRow('clim')}
-      ${!zone.has_fan ? '' : f.has.fan
+      ${!full || !zone.has_fan ? '' : f.has.fan
         ? trackRow('ventilo', 'Ventilo en marche, allumé par la maison', trackSvg('fan', nowIdx, f.fan, (v) => v ? { fill: 'var(--fan)' } : null))
         : missingRow('ventilo')}
-      ${!zone.has_velux ? '' : f.has.velux
+      ${!full || !zone.has_velux ? '' : f.has.velux
         ? trackRow('volet', "Ouverture du volet — hauteur de la barre = % ouvert", trackSvg('velux', nowIdx, f.velux, (v) => v == null ? null : { fill: 'var(--velux)', op: .8, h: Math.max(1.5, (v / 100) * STRIP_H) }))
         : missingRow('volet')}
       ${axisHtml(t, marks, nowIdx)}
