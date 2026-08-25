@@ -64,13 +64,20 @@ server {
         add_header Cache-Control "no-store" always;
     }
 
+    # index.html is the LINCHPIN: it carries the version of every asset. Cached,
+    # it keeps pointing at the old ones and no redeploy can ever be seen -- the
+    # page silently stays on yesterday's code. It had no cache header at all, so
+    # browsers and Cloudflare applied their own heuristic and kept it.
     location / {
         try_files $uri $uri/ =404;
+        add_header Cache-Control "no-store" always;
     }
 
-    # The static assets are versioned by the image, so a redeploy must win over
-    # whatever the browser kept.
+    # The assets carry a content hash in their URL (see Dockerfile), so a new
+    # build is a new address that no cache can answer with an old body. They may
+    # therefore be kept for a long time -- and `immutable` spares even the
+    # revalidation round-trip.
     location ~* \.(css|js)$ {
-        add_header Cache-Control "no-cache" always;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
     }
 }
