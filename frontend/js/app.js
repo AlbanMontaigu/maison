@@ -1116,6 +1116,44 @@ function energyHtml(e) {
     </div>`;
 }
 
+// Codes WMO (norme meteo standard, table figee) -> emoji. Le payload envoie le
+// code brut plutot que l'emoji : plus compact sur 24 heures, et la table
+// n'a besoin d'exister qu'a un seul endroit qui ne bouge pas d'une version a
+// l'autre d'OpenMeteo.
+const WMO_ICON = {
+  0: '☀️', 1: '🌤️', 2: '⛅', 3: '☁️',
+  45: '🌫️', 48: '🌫️',
+  51: '🌦️', 53: '🌦️', 55: '🌦️', 56: '🌦️', 57: '🌦️',
+  61: '🌧️', 63: '🌧️', 65: '🌧️', 66: '🌧️', 67: '🌧️',
+  71: '🌨️', 73: '🌨️', 75: '🌨️', 77: '🌨️',
+  80: '🌦️', 81: '🌧️', 82: '🌧️',
+  85: '🌨️', 86: '🌨️',
+  95: '⛈️', 96: '⛈️', 99: '⛈️',
+};
+const wmoIcon = (code) => WMO_ICON[code] ?? '·';
+
+// Bandeau meteo du jour, heure par heure, en visuel — place avant les courbes
+// de zone : c'est le contexte qui explique les courbes, il vient donc avant
+// elles, pas apres. Seulement sur "Aujourd'hui" (isRetro() gere hier/7 j, qui
+// posent une autre question : ce qui a deja ete acte, pas ce que fait le ciel).
+function weatherStripHtml(w) {
+  if (!w || !w.t || !w.t.length) return '';
+  const nowS = houseNow() / 1000;
+  const cells = w.t.map((ts, i) => {
+    const isNow = ts <= nowS && (i === w.t.length - 1 || w.t[i + 1] > nowS);
+    const temp = w.temp[i];
+    const prec = w.precip[i];
+    return `<span class="wcell${isNow ? ' now' : ''}"${isNow ? ' title="heure actuelle"' : ''}>`
+      + `<i class="wh">${hhmm(ts)}</i>`
+      + `<i class="wicon">${wmoIcon(w.code[i])}</i>`
+      + `<b>${temp != null ? Math.round(temp) + '°' : '—'}</b>`
+      + `${prec ? `<em class="wprec">${prec.toFixed(1)} mm</em>` : ''}`
+      + `</span>`;
+  }).join('');
+  return `<div class="weather"><b class="wtitle">Météo du jour</b>`
+    + `<div class="wstrip">${cells}</div></div>`;
+}
+
 function bannerHtml(h) {
   if (!h) return '';
   const out = [];
@@ -1391,7 +1429,8 @@ function render() {
   // L'electricite est un compteur de MAISON : sur la page d'une piece elle
   // repond a une autre question que celle qu'on est venu poser, et sa presence
   // laisse croire qu'elle parle de cette piece-la.
-  $('banners').innerHTML = (zoneFromHash() ? '' : energyHtml(payload.energy))
+  $('banners').innerHTML = (zoneFromHash() || view !== 'day' ? '' : weatherStripHtml(payload.weather_today))
+    + (zoneFromHash() ? '' : energyHtml(payload.energy))
     + bannerHtml(payload.house);
 
   // Une piece ouverte : on ne rend qu'elle. Un nom inconnu (zone renommee,
