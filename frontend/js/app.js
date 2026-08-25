@@ -306,7 +306,7 @@ function chartSvg(f, t, marks, nowIdx) {
     ${seps}
     ${bandPath ? `<path d="${bandPath}" fill="var(--band-fill)"/>` : ''}
     ${gapArea(out, outPast, x, y)}
-    <path d="${line(out)}" fill="none" stroke="var(--ink-dim)" stroke-width="1.1" stroke-dasharray="4 3" opacity=".75" vector-effect="non-scaling-stroke"/>
+    <path d="${line(out)}" fill="none" stroke="var(--ink-dim)" stroke-width="1.1" opacity=".75" vector-effect="non-scaling-stroke"/>
     <path d="${line(outPast)}" fill="none" stroke="var(--fc)" stroke-width="1.3" stroke-dasharray="1 3" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
     <path d="${line(outFc)}" fill="none" stroke="var(--fc)" stroke-width="1.3" stroke-dasharray="1 3" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
     <path d="${line(T)}" fill="none" stroke="var(--ink)" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
