@@ -376,15 +376,26 @@ function sunSvg(values, nowIdx, marks, fc) {
   const x = (i) => (i / Math.max(1, n - 1)) * PLOT_W;
   const y = (v) => SUN_H - (v / hi) * SUN_H;
 
-  let d = '', area = '', open = false;
+  // Une aire non refermee se ferme QUAND MEME au rendu -- une ligne droite du
+  // dernier point connu jusqu'au TOUT PREMIER point du trace, pas jusqu'a la
+  // ligne de base sous lui. Un simple trou en fin de fenetre (le dernier releve
+  // pas encore arrive) dessinait alors un triangle en diagonale sur toute la
+  // largeur : la ligne restait juste, seule l'aire mentait. Refermer au point
+  // ou l'aire s'interrompt VRAIMENT (fin de trou OU fin de tableau), pas au
+  // dernier index du tableau ni au point de depart.
+  let d = '', area = '', open = false, lastX = 0;
   for (let i = 0; i < n; i++) {
-    if (values[i] == null) { open = false; continue; }
+    if (values[i] == null) {
+      if (open) { area += `L${lastX.toFixed(1)},${SUN_H}Z`; open = false; }
+      continue;
+    }
     if (!open) { area += `M${x(i).toFixed(1)},${SUN_H}L`; d += `M`; open = true; }
     else { area += 'L'; d += 'L'; }
     const pt = `${x(i).toFixed(1)},${y(values[i]).toFixed(1)}`;
     area += pt; d += pt;
+    lastX = x(i);
   }
-  if (open) area += `L${x(n - 1).toFixed(1)},${SUN_H}Z`;
+  if (open) area += `L${lastX.toFixed(1)},${SUN_H}Z`;
 
   let seps = '';
   for (const i of marks.lines) {
@@ -395,15 +406,19 @@ function sunSvg(values, nowIdx, marks, fc) {
 
   // Meme geometrie, style different : aire plus pale et trait pointille. La
   // prevision doit se voir comme une prevision sans avoir a lire la legende.
-  let fd = '', fa = '', fopen = false;
+  let fd = '', fa = '', fopen = false, flastX = 0;
   for (let i = 0; i < n; i++) {
-    if (fcv[i] == null) { fopen = false; continue; }
+    if (fcv[i] == null) {
+      if (fopen) { fa += `L${flastX.toFixed(1)},${SUN_H}Z`; fopen = false; }
+      continue;
+    }
     if (!fopen) { fa += `M${x(i).toFixed(1)},${SUN_H}L`; fd += 'M'; fopen = true; }
     else { fa += 'L'; fd += 'L'; }
     const pt = `${x(i).toFixed(1)},${y(fcv[i]).toFixed(1)}`;
     fa += pt; fd += pt;
+    flastX = x(i);
   }
-  if (fopen) fa += `L${x(n - 1).toFixed(1)},${SUN_H}Z`;
+  if (fopen) fa += `L${flastX.toFixed(1)},${SUN_H}Z`;
 
   return `<svg class="sun" data-track="solar" viewBox="0 0 ${PLOT_W} ${SUN_H}" preserveAspectRatio="none" aria-hidden="true">`
     + `${seps}${fa ? `<path d="${fa}" fill="var(--sun-fill)" opacity=".45"/>` : ''}`
