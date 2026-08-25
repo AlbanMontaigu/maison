@@ -56,15 +56,19 @@ body {
 .top {
   display: flex; align-items: center; justify-content: space-between;
   gap: .75rem 1rem; flex-wrap: wrap;
-  padding: .8rem .9rem;
-  margin-bottom: .75rem;
+  padding: .85rem 1rem;
+  /* Pleine largeur : les marges negatives valent EXACTEMENT le padding
+     horizontal du body (.75rem). Le bandeau sort ainsi de la gouttiere des
+     cartes au lieu de s'y aligner -- c'est ce qui le fait lire comme un
+     en-tete de page et non comme une carte de plus. */
+  margin: 0 -.75rem .75rem;
   position: sticky; top: 0; z-index: 5;
-  border: 1px solid var(--edge); border-radius: 14px;
-  /* Un degrade tres doux plutot qu'un aplat : l'en-tete se detache des cartes
-     sans devenir une carte de plus. Opaque, parce qu'il est collant -- le
-     contenu passerait derriere un fond translucide. */
-  background: linear-gradient(180deg, #ffffff, #f7f9fc);
-  box-shadow: 0 1px 2px rgba(22, 32, 46, .06);
+  border-radius: 0; border-bottom: 1px solid #cddcf0;
+  /* Teinte bleutee, prise sur --cool : distincte du blanc des cartes sans
+     sortir de la palette. Opaque, parce qu'il est collant -- le contenu
+     passerait derriere un fond translucide. */
+  background: linear-gradient(180deg, #e8f0fb, #f4f8fd);
+  box-shadow: 0 1px 3px rgba(22, 32, 46, .07);
 }
 .top-id { min-width: 0; }
 .top h1 {
