@@ -990,10 +990,11 @@ function energyCurve(e) {
   // Etiquette d'ordonnee : chiffres en HTML par-dessus le SVG (celui-ci est
   // etire, un <text> y serait comprime). L'unite une seule fois, sur la
   // graduation du haut : la repeter n'apprend rien sur une bande de 62 px.
-  const yLab = (tk, pos, cls, unit) => tk.map((v, k) => {
+  const yLab = (tk, pos, cls, unit, topPrefix) => tk.map((v, k) => {
     const pct = (pos(v) / H) * 100;
+    const top = k === tk.length - 1;
     return `<span class="${cls}${pct < 10 ? ' edge-top' : ''}" style="top:${pct.toFixed(2)}%">`
-      + `${v.toLocaleString('fr-FR')}${k === tk.length - 1 ? unit : ''}</span>`;
+      + `${top && topPrefix ? topPrefix : ''}${v.toLocaleString('fr-FR')}${top ? unit : ''}</span>`;
   }).join('');
   const gridFor = (tk, pos) => tk.map((v) =>
     `<line x1="0" y1="${pos(v).toFixed(1)}" x2="${W}" y2="${pos(v).toFixed(1)}"`
@@ -1026,9 +1027,12 @@ function energyCurve(e) {
     // Une echelle a DROITE, dans la couleur du trait. Sans elle la temperature
     // flottait sans repere -- et sur la journee en cours, ou le cout n'est pas
     // encore publie, elle etait la SEULE courbe du dessin sans aucune ordonnee.
+    // Le mot "dehors" est colle a la graduation du haut : la legende qui le
+    // disait vivait sous les pistes d'appareils, un ecran plus bas, et un
+    // survol (invisible au doigt) etait le seul autre endroit qui l'apprenait.
     const tTicks = niceTicks(mid - span / 2, mid + span / 2)
       .filter((v) => v >= mid - span / 2 && v <= mid + span / 2);
-    yLabelsR = yLab(tTicks, yT, 'y-temp', '°');
+    yLabelsR = yLab(tTicks, yT, 'y-temp', '°', 'dehors ');
     // La grille appartient a UNE echelle : deux jeux de traits horizontaux se
     // lisent comme un quadrillage sans signification. Le cout la prend quand il
     // existe ; sinon elle revient a la temperature, seule courbe restante.
@@ -2140,6 +2144,11 @@ function durationSpec(zoneName, kind) {
            forceHours: hoursUntilEndOf(day) };
 }
 
+// Coude partage : dit la dependance d'une rangee de bornage envers le bouton
+// qu'elle precise, que ce soit sous Couper/Allumer OU sous Maison vide -- un
+// seul indent ne se lirait que comme un espacement.
+const ACT_ELBOW = '<span class="act-elbow" aria-hidden="true">↳</span>';
+
 function durationRow(zoneName, kind) {
   const key = durKey(zoneName, kind);
   const mode = durMode.get(key) || 'dur';
@@ -2155,13 +2164,12 @@ function durationRow(zoneName, kind) {
   // Les deux lignes sont en RETRAIT sous les verbes, precedees d'un coude : elles
   // ne sont pas des choix de meme rang, elles bornent ceux du dessus. Le retrait
   // seul se lit comme un espacement ; le coude dit la dependance.
-  const elbow = '<span class="act-elbow" aria-hidden="true">↳</span>';
-  return `<div class="act-row act-dur">${elbow}
+  return `<div class="act-row act-dur">${ACT_ELBOW}
       <button type="button" class="dur dur-mode${mode === 'dur' ? ' on' : ''}"
         data-mode="dur" ${z} aria-pressed="${mode === 'dur'}">pendant</button>
       <select class="dur-sel" ${z}>${opts}</select>
     </div>
-    <div class="act-row act-dur">${elbow}
+    <div class="act-row act-dur">${ACT_ELBOW}
       <button type="button" class="dur dur-mode${mode === 'date' ? ' on' : ''}"
         data-mode="date" ${z} aria-pressed="${mode === 'date'}">jusqu'à</button>
       <input type="date" class="dur-date" ${z}
@@ -2322,13 +2330,19 @@ function housePanel() {
     // Meme vocabulaire que sur un appareil : des TERMES, pas des durees. Ici il
     // n'y a pas de « pendant » -- une absence se declare jusqu'a une date, pas
     // pour trois heures -- donc les termes sont proposes directement.
-    : `<div class="act-row">
-         ${actBtn('Maison vide', absentDate
+    // Bouton clicable, pas un mode courant : contrairement a Couper/Allumer,
+    // « Maison vide » n'a pas d'alternative de meme rang a cote de lui. Passer
+    // par actBtn(..., true) le rendait `disabled aria-current` -- son propre
+    // etat courant -- alors que la maison n'est PAS vide dans cette branche :
+    // le bouton etait injoignable en prod. Meme forme que « Nous sommes
+    // rentrés » ci-dessus, son symetrique dans l'autre etat.
+    : `<div class="act-row">${absentDate === ''
+         ? `<button type="button" class="act" disabled title="choisir une date d’abord">Maison vide</button>`
+         : `<button type="button" class="act" data-body="${esc(JSON.stringify(absentDate
              ? { cmd: 'absent', value: 'on', until: absentDate }
-             : { cmd: 'absent', value: 'on' }, null,
-             absentDate === '' ? 'choisir une date d’abord' : null, true)}
+             : { cmd: 'absent', value: 'on' }))}">Maison vide</button>`}
        </div>
-       <div class="act-row act-dur act-vals"><span class="act-tag">jusqu'à</span>
+       <div class="act-row act-dur act-vals">${ACT_ELBOW}<span class="act-tag">jusqu'à</span>
          <button type="button" class="dur${absentDate === null ? ' on' : ''}"
            data-abs-mode="jour" aria-pressed="${absentDate === null}">ce soir</button>
          <input type="date" class="abs-date${absentDate ? ' on' : ''}" data-for="absent"
