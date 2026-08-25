@@ -37,6 +37,10 @@
      ce qui est précisément la distinction que la comparaison demande. */
   --fc: #6a5acd;
   --fc-fill: rgba(106, 90, 205, .13);
+  /* Dehors mesuré : meme logique -- une couleur a lui plutot qu'un gris
+     dilue de --ink, pour que "dedans" (noir) et "dehors" (bleu) se
+     distinguent d'un coup d'oeil et pas seulement par l'epaisseur du trait. */
+  --out: #0e7490;
   --sun: #b8860b;
   --sun-fill: rgba(212, 160, 23, .20);
 }

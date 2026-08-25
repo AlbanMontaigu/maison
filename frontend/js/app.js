@@ -306,7 +306,7 @@ function chartSvg(f, t, marks, nowIdx) {
     ${seps}
     ${bandPath ? `<path d="${bandPath}" fill="var(--band-fill)"/>` : ''}
     ${gapArea(out, outPast, x, y)}
-    <path d="${line(out)}" fill="none" stroke="var(--ink-dim)" stroke-width="1.1" opacity=".75" vector-effect="non-scaling-stroke"/>
+    <path d="${line(out)}" fill="none" stroke="var(--out)" stroke-width="1.2" opacity=".85" vector-effect="non-scaling-stroke"/>
     <path d="${line(outPast)}" fill="none" stroke="var(--fc)" stroke-width="1.3" stroke-dasharray="1 3" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
     <path d="${line(outFc)}" fill="none" stroke="var(--fc)" stroke-width="1.3" stroke-dasharray="1 3" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
     <path d="${line(T)}" fill="none" stroke="var(--ink)" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
@@ -744,7 +744,7 @@ function zoneCard(zone, f, t, marks, nowIdx) {
     </div>
     ${head}
     <div class="tracks">
-      ${trackRow('température', 'Trait plein : la pièce. Pointillés : dehors. Fond vert : l\'objectif de température.', chartSvg(f, t, marks, nowIdx))}
+      ${trackRow('température', 'Noir : la pièce. Bleu : dehors, mesuré. Pointillés violets : dehors, prévu. Fond vert : l\'objectif de température.', chartSvg(f, t, marks, nowIdx))}
       ${(() => { const sun = f.has.solar ? sunSvg(f.solar, nowIdx, marks, f.fc && f.fc.solar) : '';
           return sun ? trackRow('soleil', 'Rayonnement reçu par la fenêtre de cette pièce, en W/m²', sun) : ''; })()}
       ${trackRow('décision', "Ce que la maison a décidé de faire à cet instant — une seule chose à la fois", trackSvg('act', nowIdx, f.act, (a) => a ? { fill: colorFor(a), op: meta(a).active || isAlert(a) ? .95 : PASSIVE_OP } : null))}
@@ -1589,8 +1589,9 @@ function helpHtml() {
 
   return `
     <h3>La courbe</h3>
-    <p>Trait plein : la température de la pièce. Pointillés : la température
-    extérieure. Le fond vert est l'objectif de température — elle n'est pas
+    <p>Deux traits pleins pour ce qui est mesuré : la pièce en <em>noir</em>,
+    le dehors en <em>bleu</em>. Les pointillés sont réservés à la prévision
+    météo. Le fond vert est l'objectif de température — elle n'est pas
     plate, elle suit le programme jour / nuit de la zone.</p>
     <p><b>Les axes.</b> En ordonnée, des graduations en °C (l'unité n'est
     écrite qu'une fois, en haut) avec leurs pointillés horizontaux ; l'échelle
@@ -1605,8 +1606,8 @@ function helpHtml() {
     (même calcul que pour le présent, donc une pièce peu exposée reste peu
     exposée dans la prévision).</p>
     <p><b>Prévu contre mesuré.</b> Trois traits à ne pas confondre : la pièce est
-    en <em>noir plein</em>, le dehors <em>mesuré</em> en tirets gris, le dehors
-    <em>prévu</em> en pointillé violet. La bande violette pâle entre les deux
+    en <em>noir plein</em>, le dehors <em>mesuré</em> en <em>bleu plein</em>, le
+    dehors <em>prévu</em> en pointillé violet. La bande violette pâle entre les deux
     derniers <em>est</em> l'écart : large, la météo s'est trompée ; absente, elle
     avait vu juste. Le prévu court aussi sur les heures déjà passées — c'est ce
     qui avait été annoncé, figé au premier relevé de la journée. Survoler donne
@@ -1676,7 +1677,7 @@ function helpHtml() {
       ['var(--fan)', 'ventilo'], ['var(--occ)', "quelqu'un dans la pièce"],
       ['var(--velux)', 'volet'], ['var(--sun)', 'soleil'], ['var(--alert)', 'panne'],
       ['var(--band)', 'objectif de température'], ['var(--now)', "l'heure qu'il est"],
-      ['var(--ink-dim)', 'dehors, mesuré'], ['var(--fc)', 'dehors, prévu']]
+      ['var(--out)', 'dehors, mesuré'], ['var(--fc)', 'dehors, prévu']]
       .map(([c, l]) => `<span class="chip"><i style="background:${c}"></i>${l}</span>`).join('')}</div>
 
     <h3>Occupation</h3>
