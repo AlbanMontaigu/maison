@@ -456,6 +456,20 @@ button.act-quiet { color: var(--ink); background: var(--card-2); border-color: v
 /* Le champ date est une valeur parmi les termes : il s'aligne sur les puces et
    se marque comme elles quand c'est LUI qui est retenu. */
 .dur-date.on, .abs-date.on { border-color: var(--ink); color: var(--ink); font-weight: 560; }
+/* L'etat de l'appareil, a cote de ses boutons. Il pousse a droite pour ne pas
+   se confondre avec eux : il se lit, il ne se presse pas. */
+.act-badge {
+  /* Pas de `margin-left:auto` : colle a droite, elle se retrouvait seule et
+     desalignee des qu'elle passait a la ligne sur un telephone. Dans le flux,
+     elle suit les boutons sur un ecran large et se range sous eux sinon. */
+  padding: .2rem .5rem;
+  font-size: .76rem; font-weight: 560; white-space: nowrap;
+  color: var(--ok); background: #e7f4ed; border: 1px solid #b9dfcb; border-radius: 999px;
+  align-self: center;
+}
+.act-badge.is-off { color: var(--ink-dim); background: var(--card-2); border-color: var(--line); }
+.act-badge.is-man { color: var(--occ); background: #efeafc; border-color: #d6c9f5; }
+
 /* Les valeurs sont en retrait sous leurs onglets : la hierarchie se voit sans
    qu'on ait a lire les libelles. */
 .act-vals { margin-top: .3rem; padding-left: .9rem; }

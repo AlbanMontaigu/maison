@@ -2078,22 +2078,33 @@ function kindBlock(kind, info, zoneName, absent) {
   const d = durationSpec(zoneName, kind);
   const m = info.manual;
 
-  // État courant, en une phrase.
-  let state;
+  // L'état COURANT, à côté des boutons et non au-dessus : c'est au moment
+  // d'appuyer qu'on a besoin de savoir d'où l'on part. Une phrase posée plus
+  // haut se lit avant les réglages, puis s'oublie le temps de les faire.
+  // Les marqueurs reprennent le vocabulaire du reste de la page : 🟢 le moteur
+  // pilote, 🚪 une consigne bloque, 🖐️ une consigne minutée court.
+  let badge, badgeCls = '', badgeTitle;
   if (m) {
     const quoi = kind === 'velux' ? (m.mode === 'on' ? 'ouvert' : 'fermé')
-      : (m.mode === 'on' ? 'forcé en marche' : 'coupé');
-    state = `<p class="act-state act-man">🖐️ ${quoi} à la main jusqu'à ${esc(hhmmLocal(m.until_ts))}.</p>`;
+      : (m.mode === 'on' ? 'en marche' : 'coupé');
+    badge = `🖐️ ${quoi} jusqu'à ${esc(hhmmLocal(m.until_ts))}`;
+    badgeCls = ' is-man';
+    badgeTitle = `Consigne posée à la main : ${quoi} jusqu'à ${hhmmLocal(m.until_ts)}.`;
   } else if (absent && kind !== 'velux') {
-    // `absent` bloque clim et ventilo partout : le dire, plutôt que d'offrir un
-    // « allumer » que l'absence annulerait au tick suivant.
-    state = `<p class="act-none">Maison déclarée vide : déjà coupé partout.</p>`;
+    badge = '🚪 maison vide';
+    badgeCls = ' is-off';
+    badgeTitle = 'Maison déclarée vide : déjà coupé partout, dans toutes les pièces.';
   } else if (info.off) {
-    const quand = info.until ? ` jusqu'au ${esc(frDate(info.until))} inclus` : " pour aujourd'hui";
-    state = `<p class="act-state">${ui.coupe}${quand}.</p>`;
+    const quand = info.until ? `jusqu'au ${esc(frDate(info.until))}` : 'ce soir';
+    badge = `🚪 ${kind === 'velux' ? 'figé' : 'coupé'} ${quand}`;
+    badgeCls = ' is-off';
+    badgeTitle = `${ui.coupe}${info.until ? ` jusqu'au ${frDate(info.until)} inclus`
+      : " pour aujourd'hui"}.`;
   } else {
-    state = `<p class="act-state">${ui.libre}</p>`;
+    badge = '🟢 piloté par le moteur';
+    badgeTitle = ui.libre;
   }
+  const state = `<span class="act-badge${badgeCls}" title="${esc(badgeTitle)}">${badge}</span>`;
 
   // Rendre la main : un seul bouton, quel que soit ce qui bloque.
   const release = (m || info.off)
@@ -2139,9 +2150,8 @@ function kindBlock(kind, info, zoneName, absent) {
   // pas « pendant 3 h, couper ». La duree qui precedait l'action obligeait a
   // lire la phrase a l'envers pour savoir de quoi elle parlait.
   return `<div class="act-kind"><h4>${ui.label}</h4>
-    ${state}
+    <div class="act-row">${acts.join('')}${state}</div>
     ${release ? `<div class="act-row">${release}</div>` : ''}
-    <div class="act-row">${acts.join('')}</div>
     ${durationRow(zoneName, kind)}
   </div>`;
 }
