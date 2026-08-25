@@ -2059,10 +2059,21 @@ function durationRow(zoneName, kind) {
 // Un bouton d'action, arme ou visiblement desarme AVEC sa raison. Un bouton qui
 // part et se fait refuser par l'API apprend la regle apres coup ; desarme, il
 // l'apprend avant.
-function actBtn(label, body, zoneName, why, primary) {
-  const cls = `act${primary ? '' : ' act-quiet'}`;
+//
+// `active` = c'est l'etat COURANT de l'appareil. Les trois boutons sont des
+// MODES entre lesquels on bascule, pas des actions de rangs differents : ils
+// partagent donc la meme apparence, et seule l'appartenance a l'etat courant
+// les distingue. « Piloté par le moteur » n'etait qu'une pastille : en faire un
+// bouton rend le retour a l'automatique aussi direct que l'en sortir.
+function actBtn(label, body, zoneName, why, active) {
+  const cls = `act${active ? '' : ' act-quiet'}`;
   if (why) {
     return `<button type="button" class="${cls}" disabled title="${esc(why)}">${esc(label)}</button>`;
+  }
+  if (active) {
+    // L'etat courant ne se represse pas : il se lit. Le desarmer evite un aller
+    // -retour inutile jusqu'au moteur pour ne rien changer.
+    return `<button type="button" class="${cls}" disabled aria-current="true">${esc(label)}</button>`;
   }
   return `<button type="button" class="${cls}" data-body="${esc(JSON.stringify(body))}">${esc(label)}</button>`;
 }
@@ -2078,80 +2089,65 @@ function kindBlock(kind, info, zoneName, absent) {
   const d = durationSpec(zoneName, kind);
   const m = info.manual;
 
-  // L'état COURANT, à côté des boutons et non au-dessus : c'est au moment
-  // d'appuyer qu'on a besoin de savoir d'où l'on part. Une phrase posée plus
-  // haut se lit avant les réglages, puis s'oublie le temps de les faire.
-  // Les marqueurs reprennent le vocabulaire du reste de la page : 🟢 le moteur
-  // pilote, 🚪 une consigne bloque, 🖐️ une consigne minutée court.
-  let badge, badgeCls = '', badgeTitle;
-  if (m) {
-    const quoi = kind === 'velux' ? (m.mode === 'on' ? 'ouvert' : 'fermé')
-      : (m.mode === 'on' ? 'en marche' : 'coupé');
-    badge = `🖐️ ${quoi} jusqu'à ${esc(hhmmLocal(m.until_ts))}`;
-    badgeCls = ' is-man';
-    badgeTitle = `Consigne posée à la main : ${quoi} jusqu'à ${hhmmLocal(m.until_ts)}.`;
-  } else if (absent && kind !== 'velux') {
-    badge = '🚪 maison vide';
-    badgeCls = ' is-off';
-    badgeTitle = 'Maison déclarée vide : déjà coupé partout, dans toutes les pièces.';
-  } else if (info.off) {
-    const quand = info.until ? `jusqu'au ${esc(frDate(info.until))}` : 'ce soir';
-    badge = `🚪 ${kind === 'velux' ? 'figé' : 'coupé'} ${quand}`;
-    badgeCls = ' is-off';
-    badgeTitle = `${ui.coupe}${info.until ? ` jusqu'au ${frDate(info.until)} inclus`
-      : " pour aujourd'hui"}.`;
-  } else {
-    badge = '🟢 piloté par le moteur';
-    badgeTitle = ui.libre;
-  }
-  const state = `<span class="act-badge${badgeCls}" title="${esc(badgeTitle)}">${badge}</span>`;
-
-  // Rendre la main : un seul bouton, quel que soit ce qui bloque.
-  const release = (m || info.off)
-    ? actBtn('Rendre la main au moteur', { cmd: verb, value: 'on', zone: zoneName },
-             zoneName, null, true)
-    : '';
+  // L'ETAT COURANT n'est plus une pastille a cote des boutons : c'est celui des
+  // boutons qui est marque. Trois modes entre lesquels on bascule -- coupé, en
+  // marche, piloté -- et le mode actif porte SON echeance dans son libelle, la
+  // ou les autres portent leur verbe.
+  const mode = m ? (m.mode === 'on' ? 'on' : 'off')
+    : (absent && kind !== 'velux') ? 'absent'
+    : info.off ? 'off' : 'auto';
+  const fin = m ? ` jusqu'à ${hhmmLocal(m.until_ts)}`
+    : info.until ? ` jusqu'au ${frDate(info.until)}`
+    : info.off ? ' ce soir' : '';
 
   const tooLong = "un forçage en marche se compte en heures : au-delà d'une "
     + 'journée, coupez plutôt, ou rendez la main au moteur';
   const needDate = 'choisir une date d’abord';
   const dayOnly = 'figer un volet se déclare à la journée, pas à l’heure';
+  const whyForce = d.missing ? needDate
+    : !d.forceHours ? tooLong
+    : d.forceHours > MAX_FORCE_H ? tooLong : null;
 
   const acts = [];
   if (kind === 'velux') {
-    // Ouvrir / Fermer = position TENUE, donc une durée en heures.
-    for (const [mode, label] of [['on', ui.on], ['off', ui.off]]) {
-      const why = d.missing ? needDate
-        : !d.forceHours ? tooLong
-        : d.forceHours > MAX_FORCE_H ? tooLong : null;
-      acts.push(actBtn(label, { cmd: verb, value: mode, zone: zoneName, hours: d.forceHours },
-                       zoneName, why, mode === 'off'));
-    }
-    // Figer = « n'y touche plus », une intention à l'échelle du jour.
-    const why = !d.dayScale ? dayOnly : d.missing ? needDate : null;
-    const body = { cmd: verb, value: 'off', zone: zoneName };
-    if (d.until) body.until = d.until;
-    acts.push(actBtn(ui.fige, body, zoneName, why, false));
+    acts.push(actBtn(mode === 'on' ? `Ouvert${fin}` : ui.on,
+                     { cmd: verb, value: 'on', zone: zoneName, hours: d.forceHours },
+                     zoneName, mode === 'on' ? null : whyForce, mode === 'on'));
+    acts.push(actBtn(mode === 'off' && m ? `Fermé${fin}` : ui.off,
+                     { cmd: verb, value: 'off', zone: zoneName, hours: d.forceHours },
+                     zoneName, (mode === 'off' && m) ? null : whyForce, mode === 'off' && m));
+    // Figer = « n'y touche plus », une intention a l'echelle du jour.
+    const figeActive = mode === 'off' && !m;
+    const bodyF = { cmd: verb, value: 'off', zone: zoneName };
+    if (d.until) bodyF.until = d.until;
+    acts.push(actBtn(figeActive ? `Figé${fin}` : ui.fige, bodyF, zoneName,
+                     figeActive ? null : (!d.dayScale ? dayOnly : d.missing ? needDate : null),
+                     figeActive));
   } else {
-    // Couper : minuté si la durée est en heures, sinon à l'échelle du jour.
     const offBody = d.dayScale
       ? { cmd: verb, value: 'off', zone: zoneName, ...(d.until ? { until: d.until } : {}) }
       : { cmd: verb, value: 'off', zone: zoneName, hours: d.forceHours };
-    acts.push(actBtn(ui.off, offBody, zoneName, d.missing ? needDate : null, true));
-    // Allumer : n'existe qu'en heures côté moteur.
-    const whyOn = d.missing ? needDate
-      : !d.forceHours ? tooLong
-      : d.forceHours > MAX_FORCE_H ? tooLong : null;
-    acts.push(actBtn(ui.on, { cmd: verb, value: 'on', zone: zoneName, hours: d.forceHours },
-                     zoneName, whyOn, false));
+    acts.push(actBtn(mode === 'off' ? `Coupé${fin}` : ui.off, offBody, zoneName,
+                     mode === 'off' ? null : (d.missing ? needDate : null), mode === 'off'));
+    acts.push(actBtn(mode === 'on' ? `En marche${fin}` : ui.on,
+                     { cmd: verb, value: 'on', zone: zoneName, hours: d.forceHours },
+                     zoneName, mode === 'on' ? null : whyForce, mode === 'on'));
   }
+  // Le troisieme mode : rendre la main. Toujours propose, y compris quand il est
+  // deja actif -- c'est lui qui dit « rien ne bloque ».
+  acts.push(actBtn('Piloté par le moteur', { cmd: verb, value: 'on', zone: zoneName },
+                   zoneName, null, mode === 'auto'));
 
-  // Le VERBE d'abord, son complement ensuite : on dit « couper pendant 3 h »,
-  // pas « pendant 3 h, couper ». La duree qui precedait l'action obligeait a
-  // lire la phrase a l'envers pour savoir de quoi elle parlait.
+  // `absent` bloque clim et ventilo partout : le dire, plutot que de laisser
+  // croire qu'un bouton de cette piece y changera quelque chose.
+  const note = mode === 'absent'
+    ? `<p class="act-none">Maison déclarée vide : déjà coupé partout, dans toutes
+       les pièces. Ces boutons reprendront la main au retour.</p>`
+    : '';
+
   return `<div class="act-kind"><h4>${ui.label}</h4>
-    <div class="act-row">${acts.join('')}${state}</div>
-    ${release ? `<div class="act-row">${release}</div>` : ''}
+    ${note}
+    <div class="act-row">${acts.join('')}</div>
     ${durationRow(zoneName, kind)}
   </div>`;
 }
