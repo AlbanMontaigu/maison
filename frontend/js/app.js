@@ -2214,6 +2214,10 @@ let absentDate = null;
 // `comfort-directive.py pause on` sans argument : le bouton et la ligne de
 // commande doivent faire la meme chose quand on ne precise rien.
 let pauseHours = 3;
+// Duree choisie pour la pause d'UNE piece, par piece : deux pieces peuvent etre
+// mises en pause pour des durees differentes, et un seul nombre partage ferait
+// changer le choix de l'une en touchant a l'autre.
+const zonePauseHours = new Map();
 const durKey = (zone, kind) => `${zone}|${kind}`;
 
 const hhmmLocal = (ts) => new Date(ts * 1000).toLocaleTimeString('fr-FR',
@@ -2407,6 +2411,29 @@ function zonePanel(zoneName) {
   const absent = !!(ctl.directives || {}).absent;
   const blocks = KIND_ORDER.filter((k) => kinds[k])
     .map((k) => kindBlock(k, kinds[k], zoneName, absent)).join('');
+
+  // PAUSE DE CETTE PIECE, en tete comme la pause globale l'est sur la maison :
+  // tant qu'elle tient, les boutons du dessous sont posables mais le moteur ne
+  // les appliquera pas -- il ne touche a rien ici. L'ordre dit cette hierarchie.
+  //
+  // Elle n'impose aucun etat, contrairement a « Coupé » / « En marche » juste
+  // dessous : ceux-la forcent un appareil, celle-ci laisse la piece exactement
+  // comme elle est. C'est ce qu'il faut pour reprendre la telecommande.
+  const zp = (ctl.directives || {}).zones_pause || {};
+  const zpUntil = zp[zoneName];
+  const zh = zonePauseHours.get(zoneName) || 3;
+  const pauseBlock = `<div class="act-kind"><h4>Moteur · cette pièce</h4>${zpUntil
+    ? `<p class="act-state">⏸️ En pause jusqu'à ${esc(hhmmLocal(zpUntil))} — le moteur n'y touche à rien.</p>
+       <div class="act-row"><button type="button" class="act" data-body="${esc(JSON.stringify({ cmd: 'pause', value: 'off', zone: zoneName }))}">Reprendre cette pièce</button></div>`
+    : `<div class="act-row">
+         <button type="button" class="act" data-body="${esc(JSON.stringify({ cmd: 'pause', value: 'on', zone: zoneName, hours: zh }))}">⏸️ Mettre en pause</button>
+       </div>
+       <div class="act-row act-dur">${ACT_ELBOW}<span class="act-tag">pendant</span>
+         ${DURATIONS.map((x) => `<button type="button" class="dur${x.hours === zh ? ' on' : ''}"
+           data-zpause-h="${x.hours}" data-zone="${esc(zoneName)}"
+           aria-pressed="${x.hours === zh}">${esc(x.label)}</button>`).join('')}
+       </div>
+       <p class="act-fine">Les autres pièces restent pilotées normalement.</p>`}</div>`;
   // Plus de phrase d'echeance ici : chaque appareil porte la sienne, juste
   // au-dessus de ses boutons. Reprendre une date au pied du panneau obligerait
   // a choisir LAQUELLE quand deux appareils sont coupes a des dates
@@ -2416,7 +2443,7 @@ function zonePanel(zoneName) {
   // retenu quelque part. Répétée sous chaque pièce, elle se lisait comme une
   // mise en garde générale sur les boutons.
   const soir = Object.keys(kinds).some((k) => durationSpec(zoneName, k).id === 'soir');
-  return blocks + (soir
+  return pauseBlock + blocks + (soir
     ? `<p class="act-fine">« Ce soir » s'arrête à minuit — le moteur peut
        reprendre entre minuit et 5 h du matin. Pour couvrir la nuit, choisir une
        date.</p>`
@@ -2603,7 +2630,10 @@ function bindActions() {
         renderActions();
         return;
       }
-      if (dur.dataset.pauseH) {
+      if (dur.dataset.zpauseH) {
+        zonePauseHours.set(dur.dataset.zone, Number(dur.dataset.zpauseH));
+      }
+      else if (dur.dataset.pauseH) {
         pauseHours = Number(dur.dataset.pauseH);
       }
       else if (dur.dataset.absMode) {
