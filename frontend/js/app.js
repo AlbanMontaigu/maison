@@ -2210,6 +2210,10 @@ const durDate = new Map();
 // l'autre se remplit, laissaient croire a deux reglages qui coexistent.
 const durMode = new Map();   // "zone|kind" -> 'dur' | 'date' 
 let absentDate = null;
+// Duree choisie pour la mise en pause du moteur. 3 h par defaut, comme
+// `comfort-directive.py pause on` sans argument : le bouton et la ligne de
+// commande doivent faire la meme chose quand on ne precise rien.
+let pauseHours = 3;
 const durKey = (zone, kind) => `${zone}|${kind}`;
 
 const hhmmLocal = (ts) => new Date(ts * 1000).toLocaleTimeString('fr-FR',
@@ -2432,6 +2436,31 @@ function housePanel() {
   const block = (title, body) => `<div class="act-kind"><h4>${title}</h4>${body}</div>`;
   const out = [];
 
+  // EN TETE, avant l'absence : la pause prime sur toutes les autres consignes
+  // (comfort_occupancy.engine_paused) -- pendant qu'elle tient, rien de ce qui
+  // suit n'est meme evalue. L'ordre a l'ecran dit cette hierarchie.
+  //
+  // Elle ne coupe rien et n'allume rien : elle dit au moteur de NE PAS TOUCHER.
+  // C'est ce qu'il faut pour reprendre la main a la telecommande sans qu'un tick
+  // vienne contredire le geste dix minutes plus tard. « Maison vide », juste en
+  // dessous, fait l'inverse : elle coupe tout, partout.
+  //
+  // Globale et non par piece : le moteur n'a qu'un seul interrupteur de ce type
+  // (`pause_until`). Pour ne rendre la main que sur UN appareil, les boutons de
+  // la piece le font deja -- « Coupé »/« En marche » pour quelques heures.
+  out.push(block('Moteur', d.paused
+    ? `<p class="act-state">⏸️ Moteur en pause${d.pause_until ? ` jusqu'à ${esc(hhmmLocal(d.pause_until))}` : ''} — il ne touche à rien.</p>
+       <div class="act-row"><button type="button" class="act" data-body="${esc(JSON.stringify({ cmd: 'pause', value: 'off' }))}">Reprendre le pilotage</button></div>`
+    : `<div class="act-row">
+         <button type="button" class="act" data-body="${esc(JSON.stringify({ cmd: 'pause', value: 'on', hours: pauseHours }))}">⏸️ Mettre en pause</button>
+       </div>
+       <div class="act-row act-dur">${ACT_ELBOW}<span class="act-tag">pendant</span>
+         ${DURATIONS.map((x) => `<button type="button" class="dur${x.hours === pauseHours ? ' on' : ''}"
+           data-pause-h="${x.hours}" aria-pressed="${x.hours === pauseHours}">${esc(x.label)}</button>`).join('')}
+       </div>
+       <p class="act-fine">Le moteur laisse tout en l'état : à vous les
+         télécommandes et les boutons. Il reprend seul à l'échéance.</p>`));
+
   out.push(block('Absence', d.absent
     ? `<p class="act-state">🚪 Maison déclarée vide${d.absent_reason ? ` (${esc(d.absent_reason)})` : ''}${(d.until || {}).absent ? `, jusqu'au ${esc(frDate(d.until.absent))} inclus` : ''}.</p>
        <div class="act-row"><button type="button" class="act" data-cmd="absent" data-value="off">Nous sommes rentrés</button></div>`
@@ -2574,7 +2603,10 @@ function bindActions() {
         renderActions();
         return;
       }
-      if (dur.dataset.absMode) {
+      if (dur.dataset.pauseH) {
+        pauseHours = Number(dur.dataset.pauseH);
+      }
+      else if (dur.dataset.absMode) {
         absentDate = dur.dataset.absMode === 'jour' ? null : (absentDate || '');
       }
       else durPick.set(durKey(dur.dataset.zone, dur.dataset.kind), dur.dataset.dur);
