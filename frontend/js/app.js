@@ -2521,15 +2521,19 @@ function housePanel() {
            value="${esc(absentDate || '')}" min="${tomorrowKey()}">
        </div>`));
 
-  out.push(block('Théa', d.at_creche === true
-    ? `<p class="act-state">🏫 À la crèche.</p>
-       <div class="act-row"><button type="button" class="act" data-cmd="sieste">Elle est à la maison</button></div>`
-    : d.at_creche === false
+  // `at_school` non renseigné = le cas NORMAL : le moteur suit le calendrier
+  // scolaire (semaine = école, week-end / férié / vacances = maison) sans qu'on
+  // ait rien à lui dire. Les deux boutons servent à contredire ce calendrier un
+  // jour précis — malade, grève, sortie — pas à le saisir tous les matins.
+  out.push(block('Théa', d.at_school === true
+    ? `<p class="act-state">🏫 À l'école.</p>
+       <div class="act-row"><button type="button" class="act" data-cmd="maison">Elle est à la maison</button></div>`
+    : d.at_school === false
       ? `<p class="act-state">🏠 À la maison (fenêtre sieste ouverte).</p>
-         <div class="act-row"><button type="button" class="act" data-cmd="creche" data-value="on">Elle est à la crèche</button></div>`
+         <div class="act-row"><button type="button" class="act" data-cmd="ecole" data-value="on">Elle est à l'école</button></div>`
       : `<div class="act-row">
-           <button type="button" class="act" data-cmd="sieste">À la maison</button>
-           <button type="button" class="act" data-cmd="creche" data-value="on">À la crèche</button>
+           <button type="button" class="act" data-cmd="maison">À la maison</button>
+           <button type="button" class="act" data-cmd="ecole" data-value="on">À l'école</button>
          </div>`));
 
   // N'apparait que s'il y a quelque chose a annuler : un bouton qui n'efface
