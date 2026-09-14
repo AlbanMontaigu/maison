@@ -706,3 +706,25 @@ button.act[aria-current] {
   .cal-long { display: none; }
   .cal-short { display: inline; }
 }
+
+/* Historique des controles : les lignes de pistes des pieces (.track, .tlab,
+   .axis), une par piece. Hauteur = CAL_ROW_H dans app.js : le viewBox vaut les
+   pixels, les reperes y gardent donc leurs proportions. */
+.cchart { width: 100%; height: 48px; display: block; touch-action: pan-y; }
+.cal-hist .track + .track { margin-top: 3px; }
+.cal-sum { margin: 0 0 .1rem; font-size: .76rem; color: var(--ink-dim); }
+.cal-sum .bad { color: #a5281a; font-weight: 600; }
+.cal-keys { margin-top: .35rem; }
+/* Chaque repere a la forme de ce qu'il annonce : un aplat pour la bande, un
+   point pour les statuts, un trait vertical pour le controle en anomalie. */
+.ckey { display: inline-block; vertical-align: middle; margin: 0 .2em 0 .6em; }
+.ckey:first-child { margin-left: 0; }
+.ck-tol { width: 12px; height: 8px; border-radius: 2px; background: var(--band-fill); box-shadow: inset 0 0 0 1px rgba(22, 121, 74, .35); }
+.ck-drift { width: 6px; height: 6px; border-radius: 50%; background: var(--warm); }
+.ck-bad { width: 8px; height: 8px; border-radius: 50%; background: var(--alert); }
+.ck-anom { width: 2px; height: 11px; background: var(--alert); opacity: .7; }
+.tip .tip-bad { color: #a5281a; }
+.tip .tip-note {
+  margin: .1rem 0 0; padding-left: 1rem; max-width: 17rem;
+  white-space: normal; color: var(--ink-dim);
+}

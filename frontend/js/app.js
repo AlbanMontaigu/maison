@@ -461,7 +461,7 @@ function sunSvg(values, nowIdx, marks, fc) {
 
 function trackRow(label, hint, svg) {
   // La courbe n'a pas le fond des pistes : c'est un trace, pas une barre.
-  const cls = /class="(chart|sun)"/.test(svg) ? 'tplot' : 'tbar';
+  const cls = /class="(chart|sun|cchart)"/.test(svg) ? 'tplot' : 'tbar';
   return `<div class="track"><span class="tlab" title="${esc(hint || label)}">${esc(label)}</span>`
     + `<div class="${cls}">${svg}</div></div>`;
 }
@@ -1401,6 +1401,9 @@ function healthHtml(h, cal, frozen) {
 }
 
 const deg1 = (v) => (typeof v === 'number' ? `${v.toFixed(1)}°` : '—');
+// Le signe dit dans quel sens la vanne se trompe.
+const signedDeg = (v) => (typeof v === 'number'
+  ? `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(1)}°` : '—');
 const strList = (arr) => (Array.isArray(arr) ? arr : [])
   .map((s) => `<li>${esc(typeof s === 'string' ? s : JSON.stringify(s))}</li>`).join('');
 
@@ -1411,7 +1414,7 @@ let calibOpen = null;
 // Dernier rapport de calibration des sondes. Tout vient du rapport : pieces,
 // seuils, verdict, et les phrases de correction deja formees par le script --
 // affichees telles quelles, les reformuler serait s'ancrer sur leur forme.
-function calibHtml(cal) {
+function calibHtml(cal, hist) {
   // Champ absent = export d'avant la calibration : rien a dire. `null` = le
   // champ existe mais aucun rapport n'a encore ete ecrit : ca, ca se dit.
   if (cal === undefined) return '';
@@ -1434,12 +1437,10 @@ function calibHtml(cal) {
   const rooms = (Array.isArray(cal.rooms) ? cal.rooms : []).map((r) => {
     const st = CALIB_STATUS[r.status] || { label: r.status ?? '—' };
     const act = r.action == null ? '' : (CALIB_ACTION[r.action] || r.action);
-    const delta = typeof r.delta === 'number'
-      ? `${r.delta > 0 ? '+' : r.delta < 0 ? '−' : ''}${Math.abs(r.delta).toFixed(1)}°` : '—';
     return `<tr class="${st.tone ? `cal-${st.tone}` : ''}">`
       + `<th scope="row"><span class="cal-long">${esc(r.room ?? r.short ?? '?')}</span>`
       + `<span class="cal-short" title="${esc(r.room ?? '')}">${esc(r.short ?? r.room ?? '?')}</span></th>`
-      + `<td>${deg1(r.sb)}</td><td>${deg1(r.valve)}</td><td>${delta}</td>`
+      + `<td>${deg1(r.sb)}</td><td>${deg1(r.valve)}</td><td>${signedDeg(r.delta)}</td>`
       + `<td>${esc(st.label)}${act ? `<em>${esc(act)}</em>` : ''}</td></tr>`;
   }).join('');
 
@@ -1466,8 +1467,296 @@ function calibHtml(cal) {
       <tbody>${rooms}</tbody></table>` : '<p class="cal-fine">Aucune pièce dans ce rapport.</p>'}
     ${corrections ? `<h4>Recalages appliqués</h4><ul class="cal-list">${corrections}</ul>` : ''}
     ${skipped ? `<h4>Non recalées</h4><ul class="cal-list">${skipped}</ul>` : ''}
+    ${calibHistHtml(hist, cal)}
     ${limits ? `<p class="cal-fine">${esc(limits)}</p>` : ''}
   </details>`;
+}
+
+// Hauteur d'une ligne de l'historique, en unites du viewBox ET en pixels (voir
+// .cchart) : les points se dessinent en traits sans echelle, pas en cercles.
+const CAL_ROW_H = 48;
+
+// Ce que la bulle relit au survol. Pose au rendu, comme `ecurve` : le curseur
+// ne recalcule rien, il lit ce qui est dessine.
+let chist = null;
+
+// Traits de minuit et jours, en TEMPS et non en rang : les controles n'ont pas
+// le pas des ticks du moteur, et `viewMarks` suit la fenetre choisie en haut de
+// page, que l'historique ne suit pas. Memes libelles que la vue 7 j des pieces,
+// centres dans leur journee et sur deux lignes.
+function dayMarks(t0, t1) {
+  const lines = [], labels = [], bounds = [t0];
+  for (let ts = t0 + 3600; ts < t1; ts += 3600) {
+    if (dayKey(ts) === dayKey(ts - 3600)) continue;
+    // Pas d'une heure : `ts` tombe entre 00:00 et 00:59, avant tout changement
+    // d'heure, donc l'heure locale ramene exactement a minuit.
+    const midnight = ts - secsIntoDay(ts) - (ts % 60);
+    lines.push(midnight);
+    bounds.push(midnight);
+  }
+  bounds.push(t1);
+  for (let b = 0; b < bounds.length - 1; b++) {
+    const a = bounds[b], z = bounds[b + 1];
+    if (z - a < (t1 - t0) * 0.06) continue;
+    labels.push([((a + z) / 2 - t0) / (t1 - t0), dayLabel(a).replace(' ', '\n')]);
+  }
+  return { lines, labels };
+}
+
+// L'ecart sonde − vanne de chaque piece, controle apres controle. La question
+// posee n'est pas « quel etait l'ecart » -- le tableau du dessus y repond --
+// mais « est-ce que ca empire, ou c'est comme ca depuis toujours ».
+//
+// Une ligne par piece plutot que sept courbes superposees : sauf la piece en
+// derive franche, elles vivent toutes entre −1 et +1 °C et s'y croiseraient
+// sans qu'on puisse suivre l'une d'elles. Toutes sur la MEME echelle, en
+// revanche : une echelle par ligne ferait d'un souffle de 0,3° un relief aussi
+// haut que 8° d'ecart, et c'est precisement la difference a voir.
+function calibHistHtml(hist, cal) {
+  chist = null;
+  // Absent = export d'avant l'historique : rien a dire. Present mais vide =
+  // rien d'historise sur la fenetre : ca, ca se dit.
+  if (hist === undefined) return '';
+  const days = Number(payload.window_days);
+  const title = `<h4>Écart sonde − vanne${days > 0 ? `, ${days} derniers jours` : ''}</h4>`;
+  const runs = (Array.isArray(hist) ? hist : [])
+    .map((r) => ({ r, ts: Math.floor(Date.parse(r && r.ts) / 1000) }))
+    .filter((q) => Number.isFinite(q.ts) && q.r.rooms && typeof q.r.rooms === 'object')
+    .sort((a, b) => a.ts - b.ts);
+  if (!runs.length) return `${title}<p class="cal-fine">Pas encore d'historique.</p>`;
+
+  // Ordre et nom court du dernier rapport ; une piece qui n'y figure plus garde
+  // sa ligne, a la suite, sous son nom complet.
+  const shortOf = new Map();
+  for (const r of Array.isArray(cal.rooms) ? cal.rooms : []) {
+    if (r && r.room) shortOf.set(r.room, r.short || r.room);
+  }
+  const seen = new Set();
+  for (const q of runs) for (const k of Object.keys(q.r.rooms)) seen.add(k);
+  const rooms = [...[...shortOf.keys()].filter((n) => seen.has(n)),
+                 ...[...seen].filter((n) => !shortOf.has(n))];
+  if (!rooms.length) return `${title}<p class="cal-fine">Aucune pièce dans l'historique.</p>`;
+
+  // La fenetre de la PAGE, pas du premier au dernier controle : un historique
+  // commence hier, etire sur toute la largeur, se lirait comme une semaine
+  // stable. Le vide a gauche dit qu'il n'y a rien avant.
+  const all = payload.t || [];
+  const gen = Math.floor(Date.parse(payload.generated_at) / 1000);
+  let t0 = Math.min(runs[0].ts, all.length ? all[0] : Infinity);
+  const t1 = Math.max(runs[runs.length - 1].ts, all.length ? all[all.length - 1] : -Infinity,
+    Number.isFinite(gen) ? gen : -Infinity);
+  if (t1 - t0 < 3600) t0 = t1 - 86400;
+
+  // Les seuils sont ceux du dernier rapport, dessines et non appliques : la
+  // bande de tolerance est le repere qui fait lire « hors norme » sans legende.
+  // L'echelle est bornee au seuil d'aberration -- une sonde morte qui renvoie
+  // −50° ecraserait sinon sept jours de toutes les pieces contre le zero. Ce qui
+  // depasse est trace au bord, et deja marque « aberrant » par le script.
+  const th = cal.thresholds || {};
+  const tol = typeof th.ecart === 'number' && th.ecart > 0 ? th.ecart : null;
+  const cap = typeof th.max_delta_skip === 'number' && th.max_delta_skip > 0 ? th.max_delta_skip : null;
+  const vals = [0];
+  if (tol) vals.push(-tol, tol);
+  let clipped = false;
+  for (const q of runs) {
+    for (const n of rooms) {
+      const d = q.r.rooms[n]?.delta;
+      if (typeof d !== 'number') continue;
+      if (cap && Math.abs(d) > cap) clipped = true;
+      vals.push(cap ? Math.max(-cap, Math.min(cap, d)) : d);
+    }
+  }
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (hi - lo < 4) { const m = (hi + lo) / 2; lo = m - 2; hi = m + 2; }
+  const pad = (hi - lo) * 0.08;
+  lo -= pad; hi += pad;
+
+  const H = CAL_ROW_H;
+  const x = (ts) => ((ts - t0) / (t1 - t0)) * PLOT_W;
+  const y = (v) => H - ((Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo)) * H;
+  const f1 = (v) => v.toFixed(1);
+  // Deux controles ne se relient que s'ils se suivent : un trou de plusieurs
+  // pas (script arrete, mac eteint) trace en ligne droite inventerait les
+  // mesures du milieu.
+  const step = tickStep(runs.map((q) => q.ts));
+  const joined = (a, b) => b.ts - a.ts <= 3 * step;
+  const isBad = (q) => !!(CALIB_VERDICT[q.r.verdict] || {}).bad;
+
+  // Le fond commun a toutes les lignes. Les controles en anomalie le traversent
+  // de haut en bas, dessines dans CHAQUE ligne comme le marqueur « maintenant »
+  // des pieces : alignes au pixel, les segments se lisent comme un seul trait.
+  // Des anomalies qui se suivent forment une bande, pas une forêt de traits.
+  const ticks = niceTicks(lo, hi);
+  let common = '', yLabels = '';
+  // Toutes les graduations en traits, pas toutes en chiffres : sur 48 px, trois
+  // etiquettes se chevauchent. Le zero d'abord -- c'est le repere --, puis
+  // celles qui ont la place.
+  const labelled = [];
+  for (const v of [...ticks].sort((a, b) => Math.abs(a) - Math.abs(b))) {
+    if (labelled.every((u) => Math.abs(y(u) - y(v)) >= 18)) labelled.push(v);
+  }
+  const top = Math.max(...labelled);
+  ticks.forEach((v) => {
+    common += `<line x1="0" y1="${f1(y(v))}" x2="${PLOT_W}" y2="${f1(y(v))}" stroke="var(--line)"`
+      + ` stroke-width="1" stroke-dasharray="2 4" opacity=".8" vector-effect="non-scaling-stroke"/>`;
+    if (!labelled.includes(v)) return;
+    const pct = (y(v) / H) * 100;
+    const edge = pct < 12 ? 'edge-top' : pct > 88 ? 'edge-bot' : '';
+    yLabels += `<span class="${edge}" style="top:${pct.toFixed(2)}%">${v}${v === top ? '°' : ''}</span>`;
+  });
+  const marks = dayMarks(t0, t1);
+  for (const m of marks.lines) {
+    common += `<line x1="${f1(x(m))}" y1="0" x2="${f1(x(m))}" y2="${H}" stroke="var(--line)"`
+      + ` stroke-width="1" vector-effect="non-scaling-stroke"/>`;
+  }
+  if (tol) {
+    common += `<rect x="0" y="${f1(y(tol))}" width="${PLOT_W}" height="${f1(y(-tol) - y(tol))}" fill="var(--band-fill)"/>`;
+  }
+  common += `<line x1="0" y1="${f1(y(0))}" x2="${PLOT_W}" y2="${f1(y(0))}" stroke="var(--band)"`
+    + ` stroke-width="1" opacity=".45" vector-effect="non-scaling-stroke"/>`;
+  const vline = (px) => `<line x1="${px}" y1="0" x2="${px}" y2="${H}" stroke="var(--alert)"`
+    + ` stroke-width="1.5" opacity=".7" vector-effect="non-scaling-stroke"/>`;
+  for (let i = 0; i < runs.length; i++) {
+    if (!isBad(runs[i])) continue;
+    let j = i;
+    while (j + 1 < runs.length && isBad(runs[j + 1]) && joined(runs[j], runs[j + 1])) j++;
+    const a = x(runs[i].ts), b = x(runs[j].ts);
+    if (j > i) {
+      common += `<rect x="${f1(a)}" y="0" width="${f1(b - a)}" height="${H}" fill="var(--alert)" opacity=".1"/>`;
+    }
+    common += vline(f1(a)) + (j > i ? vline(f1(b)) : '');
+    i = j;
+  }
+
+  const rows = rooms.map((name, ri) => {
+    const pts = runs.map((q) => {
+      const e = q.r.rooms[name];
+      return { ts: q.ts, d: typeof e?.delta === 'number' ? e.delta : null, st: e?.status };
+    });
+    const segs = [];
+    let cur = null, prev = null;
+    for (const p of pts) {
+      if (p.d == null) { cur = prev = null; continue; }
+      if (!cur || !joined(prev, p)) { cur = []; segs.push(cur); }
+      cur.push(p);
+      prev = p;
+    }
+    // L'ecart se remplit jusqu'au zero : une piece en derive permanente devient
+    // une bande pleine d'un bout a l'autre de sa ligne, qui se lit « c'est comme
+    // ca depuis toujours » d'un coup d'oeil -- la ou un trait seul, haut dans
+    // sa ligne, demande de lire l'echelle. Meme argument que l'aire des pieces
+    // entre prevu et mesure.
+    const z0 = f1(y(0));
+    let line = '', area = '', lone = '';
+    for (const s of segs) {
+      const d = s.map((p, k) => `${k ? 'L' : 'M'}${f1(x(p.ts))},${f1(y(p.d))}`).join('');
+      if (s.length === 1) { lone += `${d}h0`; continue; }
+      line += d;
+      area += `${d}L${f1(x(s[s.length - 1].ts))},${z0}L${f1(x(s[0].ts))},${z0}Z`;
+    }
+    // Des points et non des cercles : le SVG est etire, un cercle y deviendrait
+    // une ellipse. Un trait de longueur nulle a bout rond, sans echelle, reste
+    // rond. Le rouge suit le statut de la piece (aberrant, illisible) ; une
+    // mesure illisible n'a pas d'ecart a placer, elle marque le pied de la ligne.
+    let drift = '', bad = '', blind = '';
+    for (const p of pts) {
+      const tone = (CALIB_STATUS[p.st] || {}).tone;
+      const px = f1(x(p.ts));
+      if (tone === 'bad' && p.d == null) blind += `M${px},${H}V${H - 9}`;
+      else if (tone === 'bad') bad += `M${px},${f1(y(p.d))}h0`;
+      else if (tone === 'drift' && p.d != null) drift += `M${px},${f1(y(p.d))}h0`;
+    }
+    const dots = (d, color, w) => (d
+      ? `<path d="${d}" stroke="${color}" stroke-width="${w}" stroke-linecap="round" fill="none" vector-effect="non-scaling-stroke"/>` : '');
+    const svg = `<svg class="cchart" data-i="${ri}" viewBox="0 0 ${PLOT_W} ${H}" preserveAspectRatio="none" aria-hidden="true">`
+      + common
+      + (area ? `<path d="${area}" fill="var(--warm)" opacity=".16"/>` : '')
+      + (line ? `<path d="${line}" fill="none" stroke="var(--ink)" stroke-width="1.4" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>` : '')
+      + dots(lone, 'var(--ink)', 3) + dots(drift, 'var(--warm)', 4)
+      + dots(blind, 'var(--alert)', 2) + dots(bad, 'var(--alert)', 7)
+      + `</svg><div class="yaxis">${yLabels}</div>`;
+    return trackRow(shortOf.get(name) || name, name, svg);
+  }).join('');
+
+  const axis = marks.labels.length
+    ? `<div class="track"><span class="tlab"></span><div class="axis axis-2l">${marks.labels
+      .map(([pos, l]) => `<span style="left:${(pos * 100).toFixed(2)}%">${esc(l).replace('\n', '<br>')}</span>`)
+      .join('')}</div></div>`
+    : '';
+
+  const badRuns = runs.filter(isBad);
+  const at = (q) => `${dayLabel(q.ts)} ${hhmm(q.ts)}`;
+  const first = runs[0], last = badRuns[badRuns.length - 1];
+  const sum = `${runs.length} contrôle${runs.length > 1 ? 's' : ''} depuis ${at(first)} · `
+    + (badRuns.length
+      ? `<b class="bad">${badRuns.length} en anomalie</b>${badRuns.length > 1 ? `, le dernier ${at(last)}` : ` : ${at(last)}`}`
+      : 'aucun en anomalie');
+  const keys = [
+    tol ? `<i class="ckey ck-tol"></i>tolérance ±${tol.toFixed(1)}°` : '',
+    '<i class="ckey ck-drift"></i>dérive',
+    '<i class="ckey ck-bad"></i>écart aberrant ou mesure illisible',
+    '<i class="ckey ck-anom"></i>contrôle en anomalie',
+  ].filter(Boolean).join(' ')
+    + (clipped ? ` · au-delà de ±${cap.toFixed(1)}°, l'écart est tracé au bord` : '');
+
+  chist = { runs, rooms, t0, t1, step };
+  return `${title}<div class="cal-hist">
+    <p class="cal-sum">${sum}</p>
+    <div class="tracks">${rows}${axis}<div class="cursor" hidden></div></div>
+    <p class="cal-fine cal-keys">${keys}</p>
+  </div>`;
+}
+
+// Bulle de l'historique : le controle le plus proche EN TEMPS, lu sur la ligne
+// de la piece survolee. Au-dela d'un pas de controle, on ne rattache pas le
+// pointeur a un controle d'une autre heure -- on dit qu'il n'y en a pas.
+function bindCalibTip() {
+  const tip = $('tip');
+  const host = $('calib');
+  host.addEventListener('pointermove', (ev) => {
+    const box = ev.target.closest('.cal-hist');
+    const svg = ev.target.closest('.cchart');
+    if (!box || !svg || !chist) { tip.hidden = true; hideCursor(); return; }
+    const name = chist.rooms[Number(svg.dataset.i)];
+    const r = svg.getBoundingClientRect();
+    const f = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
+    const ts = chist.t0 + f * (chist.t1 - chist.t0);
+    let q = null, bd = Infinity;
+    for (const c of chist.runs) {
+      const dd = Math.abs(c.ts - ts);
+      if (dd < bd) { bd = dd; q = c; }
+    }
+    let at = Math.round(ts), body;
+    if (!q || bd > chist.step) {
+      body = '<span class="dim">aucun contrôle à ce moment</span>';
+    } else {
+      at = q.ts;
+      const e = q.r.rooms[name];
+      if (!e || typeof e !== 'object') {
+        body = `${esc(name)} : <span class="dim">absente de ce contrôle</span>`;
+      } else {
+        const st = e.status == null ? '' : (CALIB_STATUS[e.status] || { label: e.status }).label;
+        const act = e.action == null ? '' : (CALIB_ACTION[e.action] || e.action);
+        body = `${esc(name)} : <b>${signedDeg(e.delta)}</b>${st ? ` · ${esc(st)}` : ''}${act ? ` · ${esc(act)}` : ''}`;
+      }
+      const v = CALIB_VERDICT[q.r.verdict];
+      if (v && v.bad) {
+        body += `<br><b class="tip-bad">${v.label}</b>`;
+        // Les phrases du script, telles quelles. Repliees a la ligne : sur un
+        // telephone, une seule phrase sans retour sortirait de l'ecran.
+        const notes = strList(q.r.anomalies);
+        if (notes) body += `<ul class="tip-note">${notes}</ul>`;
+      }
+    }
+    tip.innerHTML = `<b>${dayLabel(at)} ${hhmm(at)}</b><br>${body}`;
+    tip.hidden = false;
+    // Position en fraction de la largeur : i / (n − 1) avec n = 2.
+    placeCursor(box, svg, (at - chist.t0) / (chist.t1 - chist.t0), 2);
+    const w = tip.offsetWidth;
+    tip.style.left = Math.min(window.innerWidth - w - 8, Math.max(8, ev.clientX - w / 2)) + 'px';
+    tip.style.top = (r.top - tip.offsetHeight - 8 < 8 ? r.bottom + 8 : r.top - tip.offsetHeight - 8) + 'px';
+  });
+  host.addEventListener('pointerleave', () => { tip.hidden = true; hideCursor(); });
 }
 
 // Sur le CLIC du titre et pas sur `toggle` : un <details> rendu deja ouvert emet
@@ -1757,7 +2046,7 @@ function render() {
   // deja calcule, et ca ne depend pas du support du selecteur.
   $('zones').classList.toggle('solo', !!(solo && shown.length));
   // Rapport MAISON, comme l'electricite : absent de la page d'une piece.
-  $('calib').innerHTML = solo && shown.length ? '' : calibHtml(payload.calibration);
+  $('calib').innerHTML = solo && shown.length ? '' : calibHtml(payload.calibration, payload.calibration_history);
 
   if (v.empty) {
     $('zones').innerHTML = '<p class="empty">Pas encore de journée complète avant aujourd\'hui.</p>';
@@ -1990,6 +2279,11 @@ function helpHtml() {
     radiateur. Une <em>dérive</em> n'est pas une panne : c'est l'écart que le
     contrôle recale de lui-même. Le rapport ne s'ouvre tout seul que sur une
     <em>anomalie</em> — mesure illisible, écart aberrant, recalage impossible.</p>
+    <p>Sous le rapport, l'écart de chaque pièce contrôle après contrôle, sur la
+    fenêtre de la page. Une pièce dont l'écart reste teinté d'un bout à l'autre
+    de sa ligne dérive depuis toujours ; un écart qui grandit, lui, s'aggrave.
+    Les contrôles en <em>anomalie</em> traversent toutes les lignes d'un trait
+    rouge.</p>
 
     <h3>Le reste</h3>
     <ul>
@@ -2952,6 +3246,7 @@ bindGraphFold();
 bindEnergyTip();
 bindActions();
 bindCalibFold();
+bindCalibTip();
 // Probed once at boot and re-read after every command. Not on the refresh
 // timer: the directives change when someone changes them, and polling the
 // house's control plane every minute to redraw two buttons would be noise.
