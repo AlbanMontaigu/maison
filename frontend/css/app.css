@@ -637,3 +637,72 @@ button.act[aria-current] {
    touchaient, et on ne voyait plus quel bouton repondait a quelle question. */
 .acts .act-row + .act-row { margin-top: .45rem; }
 .acts .act-state + .act-row { margin-top: .3rem; }
+
+/* ── Etat du moteur ────────────────────────────────────────────────────────
+   Deux poids pour la meme information. Tout va bien : une ligne grise, lue
+   seulement si on la cherche. Pilotage a l'arret : un bandeau rouge, parce que
+   c'est le seul etat ou la page affiche une maison que plus rien ne pilote. */
+.banner.alert { border-left-color: var(--alert); background: #fdecea; }
+.banner.alert b { color: #a5281a; }
+.health { margin: -.2rem .25rem .7rem; font-size: .76rem; color: var(--ink-dim); }
+.health b { color: var(--ink); font-weight: 600; }
+.health .hl-bad { color: #a5281a; font-weight: 560; }
+.hdot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--neutral); margin-right: .4rem; vertical-align: .05em;
+}
+.hdot.ok { background: var(--ok); }
+.hdot.bad { background: var(--alert); }
+
+/* ── Calibration ───────────────────────────────────────────────────────────
+   Niveau MAISON comme .energy, meme habillage de carte. Replie par defaut : le
+   verdict et l'age tiennent dans le titre, et c'est la question qu'on pose. */
+.calib {
+  background: var(--card); border: 1px solid var(--edge); border-radius: 14px;
+  padding: .1rem .85rem; margin-top: .75rem; font-size: .84rem;
+}
+.calib.bad { border-left: 4px solid var(--alert); }
+.calib-none { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .6rem; padding: .7rem .85rem; }
+.calib > summary {
+  cursor: pointer; list-style: none; padding: .7rem 0;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .6rem;
+}
+.calib > summary::-webkit-details-marker { display: none; }
+.calib > summary::before { content: '▸'; font-size: .8em; color: var(--ink-dim); }
+.calib[open] > summary::before { content: '▾'; }
+.calib > summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
+.calib .ctitle { font-size: .88rem; font-weight: 660; }
+.cal-verdict { font-size: .78rem; font-weight: 600; color: var(--ok); }
+.cal-verdict.bad { color: #a5281a; }
+.cal-age { font-size: .76rem; color: var(--ink-dim); }
+.calib[open] { padding-bottom: .8rem; }
+.calib h4 { margin: .8rem 0 .3rem; font-size: .74rem; font-weight: 620; color: var(--ink-dim); }
+.cal-thermo { margin: 0 0 .5rem; color: var(--ink-dim); }
+.cal-thermo b { color: var(--ink); font-weight: 600; margin-right: .25rem; }
+.cal-list { margin: .2rem 0 .4rem; padding-left: 1.15rem; }
+.cal-list li { margin: .15rem 0; }
+.cal-anom { color: #a5281a; font-weight: 560; }
+.cal-fine { margin: .6rem 0 0; font-size: .74rem; color: var(--ink-dim); }
+
+/* Plafonnee : sur grand ecran, cinq colonnes etalees sur toute la largeur
+   eloignent le nom de la piece de ses chiffres. */
+.cal-rooms { width: 100%; max-width: 38rem; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.cal-rooms th, .cal-rooms td {
+  padding: .3rem .4rem; text-align: right; border-bottom: 1px solid var(--edge);
+  vertical-align: baseline;
+}
+.cal-rooms thead th { font-size: .7rem; font-weight: 620; color: var(--ink-dim); }
+.cal-rooms tr > :first-child, .cal-rooms tr > :last-child { text-align: left; }
+.cal-rooms tbody th { font-weight: 560; }
+.cal-rooms td em { display: block; font-style: normal; font-size: .7rem; color: var(--ink-dim); }
+/* Derive : le travail normal du recalage, donc une teinte, pas une alarme. */
+.cal-rooms tr.cal-drift td:nth-child(4) { color: var(--warm); font-weight: 600; }
+.cal-rooms tr.cal-bad { background: #fdecea; }
+.cal-rooms tr.cal-bad td:last-child { color: #a5281a; font-weight: 600; }
+/* Le nom court de la piece vient du rapport : sur telephone, « Salle de Bains 1 »
+   pousserait les chiffres hors de l'ecran. */
+.cal-short { display: none; }
+@media (max-width: 520px) {
+  .cal-long { display: none; }
+  .cal-short { display: inline; }
+}

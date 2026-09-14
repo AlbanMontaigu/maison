@@ -118,7 +118,12 @@ function houseNow() {
 
 function ago(iso, ref = houseNow()) {
   if (!iso) return '';
-  const s = Math.max(0, (ref - new Date(iso).getTime()) / 1000);
+  return agoS((ref - new Date(iso).getTime()) / 1000);
+}
+
+// Meme format, depuis un age deja calcule par l'export (`calibration.age_s`).
+function agoS(secs) {
+  const s = Math.max(0, secs);
   // Sous la minute, l'age exact n'apprend rien -- et « 0 s » se lit comme un
   // bug. C'est aussi le filet si un horodatage depasse la reference (derive
   // d'horloge sur le mac, ou payload fige plus vieux que l'etat qu'il decrit).
@@ -128,6 +133,8 @@ function ago(iso, ref = houseNow()) {
   if (s < 172800) return `${Math.round(s / 3600)} h`;
   return `${Math.round(s / 86400)} j`;
 }
+// « il y a 3 min », mais jamais « il y a à l'instant ».
+const since = (a) => (!a || a === "à l'instant" ? a : `il y a ${a}`);
 
 // Le moteur nomme ses actions pour un operateur : « plus de levier »,
 // « actionneur bloque », « anti-cyclage » sont son vocabulaire, et il est
@@ -1277,6 +1284,183 @@ function bannerHtml(h) {
   return out.join('');
 }
 
+/* ── engine health & calibration ─────────────────────────────────────────── */
+
+// Ce que `health.directive_source` dit du cron d'agenda. Meme regle que
+// PLAIN_LABELS : aiguillage par CODE, et un code inconnu est affiche tel quel
+// plutot que range de force dans une case.
+//
+// `warn` = pas de verdict d'agenda du jour. C'est le jugement du garde-fou du
+// moteur (directives_watchdog), qui compte `carried` comme manquant : l'absence
+// reconduite tient, mais le cron s'est tu. `disabled` est un coupe-circuit
+// VOULU, pas un silence.
+const DIRECTIVE_SOURCES = {
+  'state-file': {},
+  disabled: { quiet: "lecture de l'agenda désactivée" },
+  carried: { warn: true, title: "Agenda non relu aujourd'hui",
+    sub: "Le verdict d'un jour précédent est reconduit : l'absence tient, mais les autres consignes du jour ne sont pas à jour." },
+  stale: { warn: true, title: "Pas de verdict d'agenda aujourd'hui",
+    sub: "Le dernier verdict date d'un autre jour : la maison est pilotée sans consigne d'agenda." },
+  none: { warn: true, title: "Pas de verdict d'agenda aujourd'hui",
+    sub: "Aucun verdict n'a été écrit : la maison est pilotée sans consigne d'agenda." },
+  error: { warn: true, title: "Verdict d'agenda illisible",
+    sub: "La maison est pilotée sans consigne d'agenda." },
+  // `manuel` SEUL remplace `none`/`stale`/`error` quand une consigne est posee a
+  // la main (sinon la source devient `<source>+manuel`) : le cron est donc muet
+  // lui aussi, et l'override ne doit pas le masquer.
+  manuel: { warn: true, title: "Pas de verdict d'agenda aujourd'hui",
+    sub: "Seules les consignes posées à la main s'appliquent." },
+};
+
+function directiveSource(src) {
+  if (src == null) return null;
+  const base = String(src).split('+')[0];
+  return DIRECTIVE_SOURCES[base] || { quiet: `agenda : ${esc(src)}` };
+}
+
+// Vocabulaire du rapport de calibration, par code. Un code inconnu retombe sur
+// lui-meme. `tone` ne sert qu'a la couleur de la ligne ; ce qui fait une
+// anomalie est decide cote maison (`verdict`, `anomalies`), pas ici.
+const CALIB_VERDICT = {
+  ok: { label: '✓ tout concorde' },
+  anomaly: { label: '⚠️ anomalie', bad: true },
+};
+const CALIB_STATUS = {
+  ok: { label: 'ok' },
+  // Une derive n'est PAS une anomalie : c'est le travail normal du script, qui
+  // recale la vanne. Teintee, pas alarmante.
+  drift: { label: 'dérive', tone: 'drift' },
+  suspect: { label: 'écart aberrant', tone: 'bad' },
+  missing: { label: 'mesure illisible', tone: 'bad' },
+};
+const CALIB_ACTION = {
+  corrected: 'recalée',
+  cooldown: 'recalage en attente',
+  dry_run: 'essai à blanc',
+  api_missing: 'recalage impossible',
+  exec_failed: 'recalage refusé',
+};
+
+// Etat du moteur, sous l'en-tete. Discret quand tout va bien -- une ligne qu'on
+// ne lit que si on la cherche --, un bandeau quand le pilotage reel est en
+// cause. Un seul chemin pour les deux : un bandeau qui n'existe que dans les
+// cas graves est un bandeau dont on ne verifie jamais le rendu.
+//
+// `frozen` vient de l'en-tete : sur un payload fige, « pilotage en marche »
+// serait une affirmation sur maintenant tiree d'avant. Le fait reste, date.
+function healthHtml(h, cal, frozen) {
+  if (!h) return '';
+  const out = [];
+  const tick = h.last_tick ? `dernière décision ${since(ago(h.last_tick))}` : '';
+  const dir = h.directive_today ? esc(h.directive_today) : '';
+  const src = directiveSource(h.directive_source);
+  const down = h.jeedom_ok === false;
+
+  if (down) {
+    const n = Number(h.jeedom_fail_streak) || 0;
+    out.push(`<div class="banner alert"><b>Pilotage à l'arrêt</b> — le moteur ne parvient plus à lire Jeedom`
+      + `<span class="bsub">${n > 0 ? `${n} passage${n > 1 ? 's' : ''} d'affilée en échec. ` : ''}`
+      + `Aucune décision n'est prise tant que la lecture échoue${tick ? ` — ${tick}` : ''}.</span></div>`);
+  }
+  if (src && src.warn) {
+    out.push(`<div class="banner warn"><b>${src.title}</b>`
+      + `<span class="bsub">${src.sub}${dir ? ` En vigueur : ${dir}.` : ''}</span></div>`);
+  }
+
+  const bits = [];
+  if (h.jeedom_ok === true) bits.push(frozen ? 'pilotage en marche au dernier envoi' : '<b>pilotage en marche</b>');
+  if (tick && !down) bits.push(tick);
+  if (dir && !(src && src.warn)) bits.push(`aujourd'hui : ${dir}`);
+  if (src && src.quiet) bits.push(src.quiet);
+  const v = cal && CALIB_VERDICT[cal.verdict];
+  if (v && v.bad) bits.push('<span class="hl-bad">calibration : anomalie</span>');
+  if (bits.length) {
+    const dot = h.jeedom_ok === true && !frozen ? 'ok' : down ? 'bad' : '';
+    out.push(`<p class="health"><i class="hdot ${dot}" aria-hidden="true"></i>${bits.join(' · ')}</p>`);
+  }
+  return out.join('');
+}
+
+const deg1 = (v) => (typeof v === 'number' ? `${v.toFixed(1)}°` : '—');
+const strList = (arr) => (Array.isArray(arr) ? arr : [])
+  .map((s) => `<li>${esc(typeof s === 'string' ? s : JSON.stringify(s))}</li>`).join('');
+
+// Ouvert ou replie, retenu au travers des re-rendus comme les courbes. `null` =
+// l'utilisateur n'y a pas touche : le rapport s'ouvre alors seul sur anomalie.
+let calibOpen = null;
+
+// Dernier rapport de calibration des sondes. Tout vient du rapport : pieces,
+// seuils, verdict, et les phrases de correction deja formees par le script --
+// affichees telles quelles, les reformuler serait s'ancrer sur leur forme.
+function calibHtml(cal) {
+  // Champ absent = export d'avant la calibration : rien a dire. `null` = le
+  // champ existe mais aucun rapport n'a encore ete ecrit : ca, ca se dit.
+  if (cal === undefined) return '';
+  const head = '<b class="ctitle">Calibration des sondes</b>';
+  if (!cal) {
+    return `<section class="calib calib-none">${head}<span class="cal-age">aucun rapport pour l'instant</span></section>`;
+  }
+  const v = CALIB_VERDICT[cal.verdict] || { label: esc(cal.verdict ?? 'verdict inconnu') };
+  const age = typeof cal.age_s === 'number' ? since(agoS(cal.age_s))
+    : cal.ts ? since(ago(cal.ts)) : 'date inconnue';
+  const open = calibOpen ?? !!v.bad;
+
+  const th = cal.thermostat_rdc;
+  const thermo = th
+    ? `<p class="cal-thermo"><b>Thermostat RDC</b> ${deg1(th.T)}`
+      + `${th.setpoint != null ? ` · consigne ${deg1(th.setpoint)}` : ''}`
+      + `${typeof th.valve_pct === 'number' ? ` · vanne ouverte ${Math.round(th.valve_pct)} %` : ''}</p>`
+    : '';
+
+  const rooms = (Array.isArray(cal.rooms) ? cal.rooms : []).map((r) => {
+    const st = CALIB_STATUS[r.status] || { label: r.status ?? '—' };
+    const act = r.action == null ? '' : (CALIB_ACTION[r.action] || r.action);
+    const delta = typeof r.delta === 'number'
+      ? `${r.delta > 0 ? '+' : r.delta < 0 ? '−' : ''}${Math.abs(r.delta).toFixed(1)}°` : '—';
+    return `<tr class="${st.tone ? `cal-${st.tone}` : ''}">`
+      + `<th scope="row"><span class="cal-long">${esc(r.room ?? r.short ?? '?')}</span>`
+      + `<span class="cal-short" title="${esc(r.room ?? '')}">${esc(r.short ?? r.room ?? '?')}</span></th>`
+      + `<td>${deg1(r.sb)}</td><td>${deg1(r.valve)}</td><td>${delta}</td>`
+      + `<td>${esc(st.label)}${act ? `<em>${esc(act)}</em>` : ''}</td></tr>`;
+  }).join('');
+
+  const t = cal.thresholds || {};
+  const limits = [
+    typeof t.ecart === 'number' ? `écart toléré ${t.ecart.toFixed(1)}°` : '',
+    typeof t.max_delta_skip === 'number'
+      ? `au-delà de ${t.max_delta_skip.toFixed(1)}°, l'écart est jugé aberrant et rien n'est recalé` : '',
+  ].filter(Boolean).join(' · ');
+
+  const anomalies = strList(cal.anomalies);
+  const corrections = strList(cal.corrections);
+  const skipped = strList(cal.skipped);
+
+  return `<details class="calib${v.bad ? ' bad' : ''}"${open ? ' open' : ''}>
+    <summary>${head}<span class="cal-verdict${v.bad ? ' bad' : ''}">${v.label}</span><span class="cal-age">${esc(age)}</span></summary>
+    ${anomalies ? `<ul class="cal-list cal-anom">${anomalies}</ul>` : ''}
+    ${thermo}
+    ${rooms ? `<table class="cal-rooms">
+      <thead><tr><th scope="col">Pièce</th>
+        <th scope="col" title="Température mesurée par la sonde de la pièce">Sonde</th>
+        <th scope="col" title="Température que lit la vanne du radiateur">Vanne</th>
+        <th scope="col" title="Sonde moins vanne">Écart</th><th scope="col">État</th></tr></thead>
+      <tbody>${rooms}</tbody></table>` : '<p class="cal-fine">Aucune pièce dans ce rapport.</p>'}
+    ${corrections ? `<h4>Recalages appliqués</h4><ul class="cal-list">${corrections}</ul>` : ''}
+    ${skipped ? `<h4>Non recalées</h4><ul class="cal-list">${skipped}</ul>` : ''}
+    ${limits ? `<p class="cal-fine">${esc(limits)}</p>` : ''}
+  </details>`;
+}
+
+// Sur le CLIC du titre et pas sur `toggle` : un <details> rendu deja ouvert emet
+// lui aussi `toggle`, et l'ouverture automatique sur anomalie passerait alors
+// pour un choix de l'utilisateur. Le clavier (Entree, Espace) passe par `click`.
+function bindCalibFold() {
+  $('calib').addEventListener('click', (ev) => {
+    const s = ev.target.closest('details.calib > summary');
+    if (s) calibOpen = !s.parentElement.open;
+  });
+}
+
 /* ── render ──────────────────────────────────────────────────────────────── */
 
 // Index range of the current view. "Day" is the calendar day (house time) of
@@ -1500,8 +1684,9 @@ function render() {
   // lui. C'est le seul endroit ou l'horloge du lecteur sert, et seulement comme
   // seuil grossier.
   const frozenMin = (Date.now() - new Date(payload.generated_at).getTime()) / 60000;
+  const frozen = Number.isFinite(frozenMin) && frozenMin > 25;
   const engEl = $('engine');
-  if (Number.isFinite(frozenMin) && frozenMin > 25) {
+  if (frozen) {
     engEl.textContent = `données figées depuis ${ago(payload.generated_at, Date.now())}`;
     engEl.className = 'pill stale';
   } else if (eng.stale) {
@@ -1511,6 +1696,9 @@ function render() {
     engEl.textContent = `mesure de ${eng.last_run ? hhmm(Math.floor(new Date(eng.last_run).getTime() / 1000)) : '—'}`;
     engEl.className = 'pill fresh';
   }
+  // Sur toutes les pages, y compris celle d'une piece : un pilotage a l'arret
+  // concerne chaque piece, et c'est la qu'on regarde quand l'une d'elles derive.
+  $('health').innerHTML = healthHtml(payload.health, payload.calibration, frozen);
 
   const oT = payload.outdoor?.T || [];
   // Le CIEL (`radiation`), pas `solar_now` : celui-ci est module par la fenetre
@@ -1549,6 +1737,8 @@ function render() {
   // piece. La classe est posee ici plutot qu'avec `:has()` en CSS : le solo est
   // deja calcule, et ca ne depend pas du support du selecteur.
   $('zones').classList.toggle('solo', !!(solo && shown.length));
+  // Rapport MAISON, comme l'electricite : absent de la page d'une piece.
+  $('calib').innerHTML = solo && shown.length ? '' : calibHtml(payload.calibration);
 
   if (v.empty) {
     $('zones').innerHTML = '<p class="empty">Pas encore de journée complète avant aujourd\'hui.</p>';
@@ -1767,6 +1957,19 @@ function helpHtml() {
     la puissance appelée à l'instant et ce qu'elle coûterait sur une heure. Ce
     n'est pas la consommation d'une pièce, et ce n'est pas que le chauffage —
     c'est le compteur entier, machines et lumières comprises.</p>
+
+    <h3>État du moteur</h3>
+    <p>La ligne sous l'en-tête dit si le moteur pilote réellement la maison,
+    quand il a décidé pour la dernière fois, et la consigne d'agenda du jour.
+    Elle devient un <em>bandeau rouge</em> quand le moteur ne parvient plus à
+    lire la maison — plus rien n'est alors piloté — et un <em>bandeau
+    orange</em> quand l'agenda n'a pas rendu de verdict aujourd'hui.</p>
+
+    <h3>Calibration des sondes</h3>
+    <p>Le dernier contrôle entre la sonde de chaque pièce et la vanne de son
+    radiateur. Une <em>dérive</em> n'est pas une panne : c'est l'écart que le
+    contrôle recale de lui-même. Le rapport ne s'ouvre tout seul que sur une
+    <em>anomalie</em> — mesure illisible, écart aberrant, recalage impossible.</p>
 
     <h3>Le reste</h3>
     <ul>
@@ -2728,6 +2931,7 @@ bindTip();
 bindGraphFold();
 bindEnergyTip();
 bindActions();
+bindCalibFold();
 // Probed once at boot and re-read after every command. Not on the refresh
 // timer: the directives change when someone changes them, and polling the
 // house's control plane every minute to redraw two buttons would be noise.
