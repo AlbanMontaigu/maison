@@ -1290,27 +1290,43 @@ function bannerHtml(h) {
 // PLAIN_LABELS : aiguillage par CODE, et un code inconnu est affiche tel quel
 // plutot que range de force dans une case.
 //
-// `warn` = pas de verdict d'agenda du jour. C'est le jugement du garde-fou du
-// moteur (directives_watchdog), qui compte `carried` comme manquant : l'absence
-// reconduite tient, mais le cron s'est tu. `disabled` est un coupe-circuit
-// VOULU, pas un silence.
+// La source DECRIT, elle ne JUGE pas : `stale` est l'etat normal de chaque nuit,
+// de minuit au passage du cron du matin. Le jugement « cron muet » est
+// `health.directive_missing`, calcule par l'export avec la condition exacte de
+// l'alerte du moteur (directives_watchdog) -- l'heure attendue n'est pas
+// recopiee ici. La source ne sert qu'a dire POURQUOI : `title`/`sub` pour le
+// bandeau quand le cron est muet, `quiet` pour la ligne grise sinon.
+//
+// `carried` compte comme manquant pour le garde-fou une fois l'heure passee :
+// l'absence reconduite tient, mais le cron s'est tu. Avant, c'est un fait utile
+// -- le verdict en vigueur n'est pas celui du jour --, pas une alerte.
+// `disabled` est un coupe-circuit VOULU, pas un silence.
 const DIRECTIVE_SOURCES = {
   'state-file': {},
   disabled: { quiet: "lecture de l'agenda désactivée" },
-  carried: { warn: true, title: "Agenda non relu aujourd'hui",
+  carried: { quiet: "verdict d'agenda d'un jour précédent reconduit",
+    title: "Agenda non relu aujourd'hui",
     sub: "Le verdict d'un jour précédent est reconduit : l'absence tient, mais les autres consignes du jour ne sont pas à jour." },
-  stale: { warn: true, title: "Pas de verdict d'agenda aujourd'hui",
+  stale: { quiet: "pas encore de verdict d'agenda aujourd'hui",
+    title: "Pas de verdict d'agenda aujourd'hui",
     sub: "Le dernier verdict date d'un autre jour : la maison est pilotée sans consigne d'agenda." },
-  none: { warn: true, title: "Pas de verdict d'agenda aujourd'hui",
+  none: { quiet: "pas encore de verdict d'agenda aujourd'hui",
+    title: "Pas de verdict d'agenda aujourd'hui",
     sub: "Aucun verdict n'a été écrit : la maison est pilotée sans consigne d'agenda." },
-  error: { warn: true, title: "Verdict d'agenda illisible",
+  error: { quiet: "verdict d'agenda illisible",
+    title: "Verdict d'agenda illisible",
     sub: "La maison est pilotée sans consigne d'agenda." },
   // `manuel` SEUL remplace `none`/`stale`/`error` quand une consigne est posee a
   // la main (sinon la source devient `<source>+manuel`) : le cron est donc muet
   // lui aussi, et l'override ne doit pas le masquer.
-  manuel: { warn: true, title: "Pas de verdict d'agenda aujourd'hui",
+  manuel: { quiet: "seules les consignes posées à la main s'appliquent",
+    title: "Pas de verdict d'agenda aujourd'hui",
     sub: "Seules les consignes posées à la main s'appliquent." },
 };
+// Muet selon l'export mais source sans explication (inconnue, ou `state-file`
+// qui ne devrait pas l'etre) : le verdict de la maison fait foi, pas la table.
+const DIRECTIVE_MISSING = { title: "Cron d'agenda muet",
+  sub: "Aucun verdict d'agenda n'a été rendu aujourd'hui à l'heure attendue." };
 
 function directiveSource(src) {
   if (src == null) return null;
@@ -1354,6 +1370,8 @@ function healthHtml(h, cal, frozen) {
   const tick = h.last_tick ? `dernière décision ${since(ago(h.last_tick))}` : '';
   const dir = h.directive_today ? esc(h.directive_today) : '';
   const src = directiveSource(h.directive_source);
+  // `true` seulement : `null` = l'export n'a pas pu juger, et on n'affirme rien.
+  const missing = h.directive_missing === true;
   const down = h.jeedom_ok === false;
 
   if (down) {
@@ -1362,16 +1380,17 @@ function healthHtml(h, cal, frozen) {
       + `<span class="bsub">${n > 0 ? `${n} passage${n > 1 ? 's' : ''} d'affilée en échec. ` : ''}`
       + `Aucune décision n'est prise tant que la lecture échoue${tick ? ` — ${tick}` : ''}.</span></div>`);
   }
-  if (src && src.warn) {
-    out.push(`<div class="banner warn"><b>${src.title}</b>`
-      + `<span class="bsub">${src.sub}${dir ? ` En vigueur : ${dir}.` : ''}</span></div>`);
+  if (missing) {
+    const m = src && src.title ? src : DIRECTIVE_MISSING;
+    out.push(`<div class="banner warn"><b>${m.title}</b>`
+      + `<span class="bsub">${m.sub}${dir ? ` En vigueur : ${dir}.` : ''}</span></div>`);
   }
 
   const bits = [];
   if (h.jeedom_ok === true) bits.push(frozen ? 'pilotage en marche au dernier envoi' : '<b>pilotage en marche</b>');
   if (tick && !down) bits.push(tick);
-  if (dir && !(src && src.warn)) bits.push(`aujourd'hui : ${dir}`);
-  if (src && src.quiet) bits.push(src.quiet);
+  if (dir && !missing) bits.push(`aujourd'hui : ${dir}`);
+  if (src && src.quiet && !missing) bits.push(src.quiet);
   const v = cal && CALIB_VERDICT[cal.verdict];
   if (v && v.bad) bits.push('<span class="hl-bad">calibration : anomalie</span>');
   if (bits.length) {
@@ -1963,7 +1982,8 @@ function helpHtml() {
     quand il a décidé pour la dernière fois, et la consigne d'agenda du jour.
     Elle devient un <em>bandeau rouge</em> quand le moteur ne parvient plus à
     lire la maison — plus rien n'est alors piloté — et un <em>bandeau
-    orange</em> quand l'agenda n'a pas rendu de verdict aujourd'hui.</p>
+    orange</em> quand l'agenda n'a toujours pas rendu de verdict du jour à
+    l'heure où il aurait dû.</p>
 
     <h3>Calibration des sondes</h3>
     <p>Le dernier contrôle entre la sonde de chaque pièce et la vanne de son
