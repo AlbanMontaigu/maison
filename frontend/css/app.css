@@ -752,6 +752,10 @@ button.act[aria-current] {
 .cal-card.cal-ok { border-left-color: var(--ok); }
 .cal-card.cal-drift { border-left-color: var(--warm); }
 .cal-card.cal-bad, .cal-card.cal-suspect, .cal-card.cal-missing { border-left-color: var(--alert); background: #fdecea; }
+/* Efficacité thermique : une mesure "non fiable" (chaudière OFF, η peu
+   interprétable) n'est ni bonne ni mauvaise -- neutre, pas une couleur du
+   trio ok/dérive/anomalie qui laisserait croire à un jugement. */
+.cal-card.cal-unknown { border-left-color: var(--neutral); opacity: .75; }
 .cal-card-room { font-size: .8rem; font-weight: 620; }
 .cal-card-delta { font-size: 1.05rem; font-weight: 660; font-variant-numeric: tabular-nums; }
 .cal-card-sub, .cal-card-status { font-size: .7rem; color: var(--ink-dim); }
@@ -790,6 +794,13 @@ button.act[aria-current] {
 .pac-val { font-size: .68rem; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 .pac-fill { width: 100%; border-radius: 4px 4px 0 0; background: var(--warm); min-height: 2px; }
 .pac-bar.partial .pac-fill { opacity: .45; }
+/* Efficacité thermique réutilise .pac-bar/.pac-fill (même composant que le
+   chauffage/jour) mais colore chaque barre par son propre statut plutôt que
+   toujours en --warm : ok/dérive/anomalie, comme .cal-card juste au-dessus. */
+.pac-fill.tone-ok { background: var(--ok); }
+.pac-fill.tone-drift { background: var(--warm); }
+.pac-fill.tone-bad { background: var(--alert); }
+.pac-fill.tone-unknown { background: var(--neutral); opacity: .6; }
 .pac-day { font-size: .64rem; color: var(--ink-dim); }
 .tip .tip-bad { color: #a5281a; }
 .tip .tip-note {

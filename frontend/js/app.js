@@ -1666,10 +1666,150 @@ function pacDailyHtml(days) {
     </div>`;
 }
 
-function chauffageHtml(weeklyReports, pacDaily) {
+// Snapshot du jour (cron 20h, energy-report-auto.py) : conso + comparaisons,
+// PAC, chaudière, thermostat, pièces en demande. Complément de pac_daily
+// (14 jours) avec des faits que le graphique ne porte pas -- les
+// comparaisons en %, l'état instantané des appareils.
+function energyDailyHtml(d) {
+  if (!d) return '';
+  const pct = (v) => (typeof v === 'number' ? `${v > 0 ? '+' : ''}${v} %` : null);
+  const cell = (label, val) => (val ? `<span class="e"><i>${esc(label)}</i><b>${esc(val)}</b></span>` : '');
+  const cells = [
+    typeof d.conso_jour_kwh === 'number'
+      ? `<span class="e"><i>Aujourd'hui</i>${typeof d.cout_jour_eur === 'number' ? `<b>${eur(d.cout_jour_eur)}</b>` : ''}<em>${kwh(d.conso_jour_kwh)}</em></span>`
+      : '',
+    cell('vs hier', pct(d.vs_yesterday_pct)),
+    cell('vs S-1', pct(d.vs_last_week_pct)),
+    typeof d.avg_7d_kwh === 'number' ? cell('moy. 7 j', kwh(d.avg_7d_kwh)) : '',
+  ].filter(Boolean).join('');
+
+  const pac = d.pac || {}, boiler = d.boiler || {}, th = d.thermostat_rdc || {};
+  const lines = [];
+  if (pac.depart_c != null || pac.retour_c != null) {
+    lines.push(`<p class="rplain">♨️ PAC ${pac.active ? 'active' : 'au repos'}`
+      + `${pac.depart_c != null ? ` · départ ${deg1(pac.depart_c)}` : ''}`
+      + `${pac.retour_c != null ? ` / retour ${deg1(pac.retour_c)}` : ''}`
+      + `${pac.on_hours != null ? ` · ${pac.on_hours} h ON / ${pac.off_hours} h OFF` : ''}</p>`);
+  }
+  if (boiler.on != null || th.temperature != null) {
+    lines.push(`<p class="rplain">🔥 Chaudière ${boiler.on ? 'ON' : 'OFF'}${boiler.priority ? ` (${esc(boiler.priority)})` : ''}`
+      + `${th.temperature != null ? ` · RDC ${deg1(th.temperature)}${th.consigne != null ? ` / consigne ${deg1(th.consigne)}` : ''}` : ''}</p>`);
+  }
+  if (d.outdoor_temp != null) {
+    lines.push(`<p class="rplain">🌡️ Dehors ${deg1(d.outdoor_temp)}${d.outdoor_avg_today != null ? ` (moy. jour ${deg1(d.outdoor_avg_today)})` : ''}</p>`);
+  }
+  const rooms = (d.active_rooms || [])
+    .map((r) => esc(r.room) + (r.valve_percent != null ? ` (${r.valve_percent} %)` : '')).join(', ');
+  if (rooms) lines.push(`<p class="rplain">🚪 Pièces en demande : ${rooms}</p>`);
+
+  return `<div class="rsec">
+      <b class="rsec-h">Aujourd'hui</b>
+      ${cells ? `<div class="erow ostats">${cells}</div>` : ''}
+      ${lines.join('')}
+    </div>`;
+}
+
+/* ── Efficacité thermique ─────────────────────────────────────────────────
+   η = T mesurée / T consigne, ramenées à l'extérieur (1.0 = parfait). Cron
+   19h30, thermal-efficiency-auto.py. Les seuils viennent du rapport (comme
+   calibration.thresholds) : ce script les possède, la page ne fait que les
+   appliquer -- jamais recopiés en dur ici. */
+const ETA_TONE_LABEL = { ok: 'optimal', drift: 'à surveiller', bad: 'anomalie', unknown: 'non fiable' };
+
+function etaTone(eta, thresholds, mode, reliable) {
+  if (eta == null || !reliable || !thresholds) return 'unknown';
+  if (mode === 'cooling') {
+    if (eta <= thresholds.overcool) return 'bad';
+    if (eta <= thresholds.optimal_max) return 'ok';
+    if (eta <= thresholds.undercool) return 'drift';
+    return 'bad';
+  }
+  if (eta >= thresholds.overheat) return 'bad';
+  if (eta >= thresholds.optimal_min) return 'ok';
+  if (eta >= thresholds.underheat) return 'drift';
+  return 'bad';
+}
+
+// Meme grille de cartes que la calibration (.cal-grid/.cal-card) : deux
+// rapports differents, mais la meme question ("quel etat, par piece, en un
+// coup d'oeil") appelle la meme forme.
+function thermalRoomGridHtml(rooms, thresholds, mode) {
+  const list = Array.isArray(rooms) ? rooms : [];
+  if (!list.length) return '<p class="cal-fine">Aucune pièce dans ce rapport.</p>';
+  return `<div class="cal-grid">
+      ${list.map((r) => {
+        const tone = etaTone(r.eta, thresholds, mode, r.eta_reliable !== false);
+        const arrow = r.inertia_dT_per_day > 0.2 ? '↑' : r.inertia_dT_per_day < -0.2 ? '↓' : '→';
+        return `<div class="cal-card cal-${tone}">
+            <b class="cal-card-room">${esc(r.room ?? '?')}</b>
+            <span class="cal-card-delta">${typeof r.eta === 'number' ? r.eta.toFixed(2) : '—'}${r.eta_reliable === false ? ' ⏸️' : ''}</span>
+            <span class="cal-card-sub">${deg1(r.t_measured)} · csg ${deg1(r.t_setpoint)} ${arrow}</span>
+            <span class="cal-card-status">${ETA_TONE_LABEL[tone]}</span>
+          </div>`;
+      }).join('')}
+    </div>`;
+}
+
+// Historique de l'efficacité globale, en graphique a barres -- meme
+// composant que pac_daily (.pac-chart), colore par les memes seuils que la
+// grille de pieces. Cadre visuel FIXE (0.4-1.4) et pas un max glissant : eta
+// a un "parfait" absolu (1.0), contrairement au kWh qui n'en a pas -- un max
+// glissant aurait donne des hauteurs differentes a deux jours identiques.
+function thermalDailyHtml(days, thresholds, mode) {
+  const rows = (Array.isArray(days) ? days : []).filter((d) => typeof d.global_eta === 'number');
+  if (!rows.length) return '';
+  const bars = rows.map((d) => {
+    const tone = etaTone(d.global_eta, thresholds, mode, true);
+    const h = Math.max(4, Math.min(100, Math.round(((d.global_eta - 0.4) / (1.4 - 0.4)) * 100)));
+    return `<div class="pac-bar" title="${esc(frDate(d.date))} · η ${d.global_eta.toFixed(2)}">
+        <span class="pac-val">${d.global_eta.toFixed(2)}</span>
+        <span class="pac-fill tone-${tone}" style="height:${h}%"></span>
+        <span class="pac-day">${esc(frDate(d.date))}</span>
+      </div>`;
+  }).join('');
+  return `<div class="pac-chart-wrap">
+      <p class="rsec-h2">Efficacité globale par jour <span class="rsec-unit">(η, 1.0 = parfait)</span></p>
+      <div class="pac-chart">${bars}</div>
+    </div>`;
+}
+
+function thermalEfficiencyHtml(eff, daily) {
+  if (!eff && !(Array.isArray(daily) && daily.length)) return '';
+  const mode = (eff && eff.mode) || 'heating';
+  const thresholds = eff && eff.thresholds;
+  const age = eff && (typeof eff.age_s === 'number' ? since(agoS(eff.age_s))
+    : eff.generated_at ? since(ago(eff.generated_at)) : 'date inconnue');
+  const globalLine = eff && typeof eff.global_eta === 'number'
+    ? `η global ${eff.global_eta.toFixed(2)}`
+      + (typeof eff.yesterday_eta === 'number' ? ` · hier ${eff.yesterday_eta.toFixed(2)}` : '')
+      + (typeof eff.week_avg_eta === 'number' ? ` · moy. 7 j ${eff.week_avg_eta.toFixed(2)}` : '')
+    : '';
+  const lists = eff ? [
+    ['Anomalies', eff.anomalies],
+    ['Alertes vannes', eff.valve_alerts],
+    ['Recommandations', eff.setpoint_recos],
+    ['Isolation', eff.isolation_issues],
+  ].filter(([, arr]) => Array.isArray(arr) && arr.length) : [];
+
+  return `<div class="rsec">
+      <div class="cal-head">
+        <b class="rsec-h">Efficacité thermique</b>
+        ${eff ? `<span class="cal-verdict${eff.verdict === 'anomaly' ? ' bad' : ''}">${eff.verdict === 'anomaly' ? '⚠️ anomalie' : '✓ nominal'}</span>` : ''}
+        ${age ? `<span class="cal-age">${esc(age)}</span>` : ''}
+      </div>
+      ${globalLine ? `<p class="wr-age">${esc(globalLine)} · mode ${mode === 'cooling' ? 'refroidissement' : 'chauffage'}</p>` : ''}
+      ${eff ? thermalRoomGridHtml(eff.rooms, thresholds, mode) : ''}
+      ${lists.map(([title, arr]) => `<h4>${esc(title)}</h4><ul class="cal-list">${strList(arr)}</ul>`).join('')}
+      ${thermalDailyHtml(daily, thresholds, mode)}
+    </div>`;
+}
+
+function chauffageHtml(weeklyReports, pacDaily, energyDaily, thermalEff, thermalDaily) {
   const reports = Array.isArray(weeklyReports) ? weeklyReports : [];
   const daily = pacDailyHtml(pacDaily);
-  if (!reports.length && !daily) return '';
+  const today = energyDailyHtml(energyDaily);
+  const thermal = thermalEfficiencyHtml(thermalEff, thermalDaily);
+  if (!reports.length && !daily && !today && !thermal) return '';
 
   const nav = historyNavHtml(
     reports.map((r) => ({ id: r.week, label: esc((r.week || '').replace(/^\d+-W/, 'S')) })),
@@ -1679,10 +1819,12 @@ function chauffageHtml(weeklyReports, pacDaily) {
     : selected.generated_at ? since(ago(selected.generated_at)) : 'date inconnue');
 
   return `<section class="chauff">
+      ${today}
       ${nav}
       ${selected ? `<p class="wr-age">Rapport ${esc(age)}</p>${reportSectionsHtml(selected.text || '')}`
-        : '<p class="cal-fine">Aucun rapport pour l\'instant.</p>'}
+        : '<p class="cal-fine">Aucun rapport hebdomadaire pour l\'instant.</p>'}
       ${daily}
+      ${thermal}
     </section>`;
 }
 
@@ -2146,7 +2288,9 @@ function render() {
   $('zones').classList.toggle('solo', !!(solo && shown.length));
   // Rapports MAISON, chacun sur son propre onglet desormais : plus de partage
   // avec la page d'une piece (qui n'existe que sous "dashboard").
-  $('chauffage').innerHTML = tab !== 'rapports' ? '' : chauffageHtml(payload.weekly_reports, payload.pac_daily);
+  $('chauffage').innerHTML = tab !== 'rapports' ? '' : chauffageHtml(
+    payload.weekly_reports, payload.pac_daily, payload.energy_daily_report,
+    payload.thermal_efficiency, payload.thermal_efficiency_daily);
   $('calib').innerHTML = tab !== 'calibration' ? '' : calibHtml(payload.calibration, payload.calibration_daily);
 
   if (v.empty) {
