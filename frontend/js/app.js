@@ -1501,7 +1501,7 @@ const CALIB_ACTION = {
 //
 // `frozen` vient de l'en-tete : sur un payload fige, « pilotage en marche »
 // serait une affirmation sur maintenant tiree d'avant. Le fait reste, date.
-function healthHtml(h, cal, frozen) {
+function healthHtml(h, frozen) {
   if (!h) return '';
   const out = [];
   const tick = h.last_tick ? `dernière décision ${since(ago(h.last_tick))}` : '';
@@ -1522,19 +1522,35 @@ function healthHtml(h, cal, frozen) {
     out.push(`<div class="banner warn"><b>${m.title}</b>`
       + `<span class="bsub">${m.sub}${dir ? ` En vigueur : ${dir}.` : ''}</span></div>`);
   }
-
-  const bits = [];
-  if (h.jeedom_ok === true) bits.push(frozen ? 'pilotage en marche au dernier envoi' : '<b>pilotage en marche</b>');
-  if (tick && !down) bits.push(tick);
-  if (dir && !missing) bits.push(`aujourd'hui : ${dir}`);
-  if (src && src.quiet && !missing) bits.push(src.quiet);
-  const v = cal && CALIB_VERDICT[cal.verdict];
-  if (v && v.bad) bits.push('<span class="hl-bad">calibration : anomalie</span>');
-  if (bits.length) {
-    const dot = h.jeedom_ok === true && !frozen ? 'ok' : down ? 'bad' : '';
-    out.push(`<p class="health"><i class="hdot ${dot}" aria-hidden="true"></i>${bits.join(' · ')}</p>`);
-  }
   return out.join('');
+}
+
+// Etat du pilotage, en badge dans l'en-tete (a cote de #outdoor et #engine)
+// plutot qu'en ligne de texte sous l'en-tete : c'est un statut au meme titre
+// que « dehors » ou « derniere mesure », il merite la meme place. Le texte
+// visible reste court (2 faits) ; le reste (directive du jour, agenda muet,
+// calibration en anomalie) passe en `title` -- present, pas perdu, mais un
+// badge n'est pas l'endroit pour une phrase complete.
+function pilotagePill(h, cal, frozen) {
+  if (!h || h.jeedom_ok == null) return null;
+  const down = h.jeedom_ok === false;
+  const tick = h.last_tick ? `dernière décision ${since(ago(h.last_tick))}` : '';
+  const text = down ? "pilotage à l'arrêt"
+    : `pilotage en marche${tick ? ` · ${tick}` : ''}${frozen ? ' (au dernier envoi)' : ''}`;
+
+  const dir = h.directive_today;
+  const src = directiveSource(h.directive_source);
+  const missing = h.directive_missing === true;
+  const v = cal && CALIB_VERDICT[cal.verdict];
+  const details = [
+    down && Number(h.jeedom_fail_streak) > 0
+      ? `${h.jeedom_fail_streak} passage(s) d'affilée en échec` : '',
+    dir && !missing ? `aujourd'hui : ${dir}` : '',
+    src && src.quiet && !missing ? src.quiet : '',
+    v && v.bad ? 'calibration : anomalie' : '',
+  ].filter(Boolean).join(' · ');
+
+  return { text, title: details, cls: down ? 'stale' : frozen ? '' : 'fresh' };
 }
 
 const deg1 = (v) => (typeof v === 'number' ? `${v.toFixed(1)}°` : '—');
@@ -2074,7 +2090,16 @@ function render() {
   }
   // Sur toutes les pages, y compris celle d'une piece : un pilotage a l'arret
   // concerne chaque piece, et c'est la qu'on regarde quand l'une d'elles derive.
-  $('health').innerHTML = healthHtml(payload.health, payload.calibration, frozen);
+  $('health').innerHTML = healthHtml(payload.health, frozen);
+
+  const pilEl = $('pilotage');
+  const pil = pilotagePill(payload.health, payload.calibration, frozen);
+  pilEl.hidden = !pil;
+  if (pil) {
+    pilEl.textContent = pil.text;
+    pilEl.title = pil.title;
+    pilEl.className = `pill${pil.cls ? ` ${pil.cls}` : ''}`;
+  }
 
   const oT = payload.outdoor?.T || [];
   // Le CIEL (`radiation`), pas `solar_now` : celui-ci est module par la fenetre

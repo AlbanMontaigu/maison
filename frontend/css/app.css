@@ -688,20 +688,12 @@ button.act[aria-current] {
 .acts .act-state + .act-row { margin-top: .3rem; }
 
 /* ── Etat du moteur ────────────────────────────────────────────────────────
-   Deux poids pour la meme information. Tout va bien : une ligne grise, lue
-   seulement si on la cherche. Pilotage a l'arret : un bandeau rouge, parce que
-   c'est le seul etat ou la page affiche une maison que plus rien ne pilote. */
+   Pilotage a l'arret : un bandeau rouge, parce que c'est le seul etat ou la
+   page affiche une maison que plus rien ne pilote. L'etat routinier ("pilotage
+   en marche") est un badge dans l'en-tete (#pilotage, voir .pill plus haut),
+   pas ici -- ici ne restent que les VRAIES alertes. */
 .banner.alert { border-left-color: var(--alert); background: #fdecea; }
 .banner.alert b { color: #a5281a; }
-.health { margin: -.2rem .25rem .7rem; font-size: .76rem; color: var(--ink-dim); }
-.health b { color: var(--ink); font-weight: 600; }
-.health .hl-bad { color: #a5281a; font-weight: 560; }
-.hdot {
-  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
-  background: var(--neutral); margin-right: .4rem; vertical-align: .05em;
-}
-.hdot.ok { background: var(--ok); }
-.hdot.bad { background: var(--alert); }
 
 /* ── Historique (jour / semaine) ──────────────────────────────────────────
    Bande de choix commune a Calibration et Rapports (voir historyNavHtml dans
