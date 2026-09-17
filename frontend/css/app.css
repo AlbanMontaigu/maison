@@ -57,22 +57,28 @@ body {
 /* L'en-tete porte l'identite ET l'etat : « comment va la maison » doit se lire
    ici, pas au terme d'un parcours des six cartes. Il reste collant, donc la
    reponse suit le regard pendant qu'on fait defiler. */
-.top {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: .75rem 1rem; flex-wrap: wrap;
-  padding: .85rem 1rem;
+/* En-tete + onglets forment UNE seule unite collante : deux sticky
+   independants ne s'empilent pas (chacun colle a top:0 du viewport, le second
+   passerait donc SOUS le premier au lieu de juste en dessous). Le wrapper
+   porte le collant, le plein-bord et l'ombre ; .top et .tabs ne sont que son
+   contenu, l'un sur l'autre, sans espace entre eux. */
+.topwrap {
   /* Pleine largeur : les marges negatives valent EXACTEMENT le padding
      horizontal du body (.75rem). Le bandeau sort ainsi de la gouttiere des
      cartes au lieu de s'y aligner -- c'est ce qui le fait lire comme un
      en-tete de page et non comme une carte de plus. */
   margin: 0 -.75rem .75rem;
   position: sticky; top: 0; z-index: 5;
-  border-radius: 0; border-bottom: 1px solid #cddcf0;
+  box-shadow: 0 1px 3px rgba(22, 32, 46, .07);
+}
+.top {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .75rem 1rem; flex-wrap: wrap;
+  padding: .85rem 1rem;
   /* Teinte bleutee, prise sur --cool : distincte du blanc des cartes sans
      sortir de la palette. Opaque, parce qu'il est collant -- le contenu
      passerait derriere un fond translucide. */
   background: linear-gradient(180deg, #e8f0fb, #f4f8fd);
-  box-shadow: 0 1px 3px rgba(22, 32, 46, .07);
 }
 .top-id { min-width: 0; }
 .top h1 {
@@ -229,24 +235,27 @@ body {
 /* ── Onglets ───────────────────────────────────────────────────────────────
    Navigation PRINCIPALE (tableau de bord / calibration / rapports), donc plus
    grande et plus affirmee que .seg (un simple filtre secondaire sur la meme
-   page). Collante sous l'en-tete : sur une longue page de calibration ou de
-   rapport, revenir au tableau de bord ne doit jamais demander de remonter. */
+   page). Accolee sous l'en-tete (meme unite collante, .topwrap ci-dessus) :
+   sur une longue page de calibration ou de rapport, revenir au tableau de
+   bord ne doit jamais demander de remonter. Couleur a elle -- plus soutenue
+   que le degrade de l'en-tete, pas transparente dessus -- pour que la bande
+   d'onglets se voie comme une chose distincte, pas comme un prolongement flou
+   du bandeau d'identite. */
 .tabs {
-  display: flex; gap: .3rem; padding: .5rem .1rem;
-  position: sticky; top: 0; z-index: 4;
-  background: var(--bg);
-  margin: 0 -.75rem .75rem; padding-left: .75rem; padding-right: .75rem;
+  display: flex; gap: .3rem;
+  padding: .4rem .75rem;
+  background: #d8e4f5;
   overflow-x: auto;
-  border-bottom: 1px solid var(--edge);
 }
 .tabs button {
-  appearance: none; border: 0; background: transparent; color: var(--ink-dim);
+  appearance: none; border: 0; background: transparent; color: #3a5578;
   font: inherit; font-size: .84rem; font-weight: 560; padding: .5rem .75rem;
-  cursor: pointer; white-space: nowrap; border-radius: 10px 10px 0 0;
-  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  cursor: pointer; white-space: nowrap; border-radius: 8px;
 }
 .tabs button.on {
-  color: var(--ink); font-weight: 660; border-bottom-color: var(--cool);
+  color: var(--ink); font-weight: 660;
+  background: var(--card);
+  box-shadow: 0 1px 2px rgba(22, 32, 46, .12);
 }
 
 /* Chaque onglet ne montre que ce qui lui appartient. `body[data-tab]` (posé
