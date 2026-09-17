@@ -459,6 +459,134 @@ function sunSvg(values, nowIdx, marks, fc) {
     + `<span class="sunhi" style="top:${((y(SOLAR_HIGH) / SUN_H) * 100).toFixed(1)}%">plein soleil</span></div>`;
 }
 
+// Ecart sonde − vanne de CETTE piece, controle apres controle -- la meme
+// question que la courbe de temperature ("est-ce que ca derive"), posee sur un
+// autre pas : les controles de calibration n'ont rien a voir avec le pas du
+// moteur, d'ou un trace en TEMPS (x(ts)), pas en index. Il reste align au
+// pixel sur les autres pistes de la carte : les ticks du moteur etant
+// regulierement espaces, i/(n-1) et (t[i]-t0)/(t1-t0) valent exactement la
+// meme fraction.
+//
+// Echelle PROPRE a la piece (comme la courbe de temperature), pas partagee
+// entre pieces : la comparaison qui justifiait une echelle commune n'a plus
+// cours des qu'on regarde une piece a la fois, sur sa propre carte.
+function calibSvg(frame, t, marks, nowIdx) {
+  const cal = payload.calibration || {};
+  const pts = frame.pts;
+  const n = t.length;
+  const t0 = frame.t0, t1 = frame.t1;
+  const x = (ts) => ((ts - t0) / Math.max(1, t1 - t0)) * PLOT_W;
+
+  const th = cal.thresholds || {};
+  const tol = typeof th.ecart === 'number' && th.ecart > 0 ? th.ecart : null;
+  const cap = typeof th.max_delta_skip === 'number' && th.max_delta_skip > 0 ? th.max_delta_skip : null;
+
+  const vals = [0];
+  if (tol) vals.push(-tol, tol);
+  for (const p of pts) {
+    if (p.d == null) continue;
+    vals.push(cap ? Math.max(-cap, Math.min(cap, p.d)) : p.d);
+  }
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (hi - lo < 4) { const m = (hi + lo) / 2; lo = m - 2; hi = m + 2; }
+  const pad = (hi - lo) * 0.08;
+  lo -= pad; hi += pad;
+
+  const H = CAL_ROW_H;
+  const y = (v) => H - ((Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo)) * H;
+  const f1 = (v) => v.toFixed(1);
+
+  // Deux controles ne se relient que s'ils se suivent : un trou de plusieurs
+  // pas (script arrete, mac eteint) trace en ligne droite inventerait les
+  // mesures du milieu.
+  const step = tickStep(pts.map((p) => p.ts));
+  const joined = (a, b) => b.ts - a.ts <= 3 * step;
+  const isBad = (p) => !!(CALIB_VERDICT[p.verdict] || {}).bad;
+
+  const ticks = niceTicks(lo, hi);
+  let common = '', yLabels = '';
+  const labelled = [];
+  for (const v of [...ticks].sort((a, b) => Math.abs(a) - Math.abs(b))) {
+    if (labelled.every((u) => Math.abs(y(u) - y(v)) >= 16)) labelled.push(v);
+  }
+  const top = Math.max(...labelled);
+  ticks.forEach((v) => {
+    common += `<line x1="0" y1="${f1(y(v))}" x2="${PLOT_W}" y2="${f1(y(v))}" stroke="var(--line)"`
+      + ` stroke-width="1" stroke-dasharray="2 4" opacity=".8" vector-effect="non-scaling-stroke"/>`;
+    if (!labelled.includes(v)) return;
+    const pct = (y(v) / H) * 100;
+    const edge = pct < 12 ? 'edge-top' : pct > 88 ? 'edge-bot' : '';
+    yLabels += `<span class="${edge}" style="top:${pct.toFixed(2)}%">${v}${v === top ? '°' : ''}</span>`;
+  });
+  // Memes traits verticaux que les autres pistes de la carte, issus du MEME
+  // `marks` : l'alignement au pixel avec le reste de la carte vient de la
+  // coincidence index/temps expliquee plus haut.
+  for (const i of marks.lines) {
+    const px = f1((i / Math.max(1, n - 1)) * PLOT_W);
+    common += `<line x1="${px}" y1="0" x2="${px}" y2="${H}" stroke="var(--line)"`
+      + ` stroke-width="1" vector-effect="non-scaling-stroke"/>`;
+  }
+  if (tol) {
+    common += `<rect x="0" y="${f1(y(tol))}" width="${PLOT_W}" height="${f1(y(-tol) - y(tol))}" fill="var(--band-fill)"/>`;
+  }
+  common += `<line x1="0" y1="${f1(y(0))}" x2="${PLOT_W}" y2="${f1(y(0))}" stroke="var(--band)"`
+    + ` stroke-width="1" opacity=".45" vector-effect="non-scaling-stroke"/>`;
+
+  const vline = (px) => `<line x1="${px}" y1="0" x2="${px}" y2="${H}" stroke="var(--alert)"`
+    + ` stroke-width="1.5" opacity=".7" vector-effect="non-scaling-stroke"/>`;
+  for (let i = 0; i < pts.length; i++) {
+    if (!isBad(pts[i])) continue;
+    let j = i;
+    while (j + 1 < pts.length && isBad(pts[j + 1]) && joined(pts[j], pts[j + 1])) j++;
+    const a = x(pts[i].ts), b = x(pts[j].ts);
+    if (j > i) common += `<rect x="${f1(a)}" y="0" width="${f1(b - a)}" height="${H}" fill="var(--alert)" opacity=".1"/>`;
+    common += vline(f1(a)) + (j > i ? vline(f1(b)) : '');
+    i = j;
+  }
+
+  // L'ecart se remplit jusqu'au zero : une derive permanente se lit comme une
+  // bande pleine d'un bout a l'autre, sans avoir a lire l'echelle. Meme
+  // argument que l'aire des pieces entre prevu et mesure.
+  const segs = [];
+  let cur = null, prev = null;
+  for (const p of pts) {
+    if (p.d == null) { cur = prev = null; continue; }
+    if (!cur || !joined(prev, p)) { cur = []; segs.push(cur); }
+    cur.push(p);
+    prev = p;
+  }
+  const z0 = f1(y(0));
+  let line = '', area = '', lone = '';
+  for (const s of segs) {
+    const d = s.map((p, k) => `${k ? 'L' : 'M'}${f1(x(p.ts))},${f1(y(p.d))}`).join('');
+    if (s.length === 1) { lone += `${d}h0`; continue; }
+    line += d;
+    area += `${d}L${f1(x(s[s.length - 1].ts))},${z0}L${f1(x(s[0].ts))},${z0}Z`;
+  }
+  // Des points et non des cercles : le SVG est etire, un cercle y deviendrait
+  // une ellipse. Le rouge suit le statut (aberrant, illisible) ; une mesure
+  // illisible n'a pas d'ecart a placer, elle marque le pied de la piste.
+  let drift = '', bad = '', blind = '';
+  for (const p of pts) {
+    const tone = (CALIB_STATUS[p.st] || {}).tone;
+    const px = f1(x(p.ts));
+    if (tone === 'bad' && p.d == null) blind += `M${px},${H}V${H - 9}`;
+    else if (tone === 'bad') bad += `M${px},${f1(y(p.d))}h0`;
+    else if (tone === 'drift' && p.d != null) drift += `M${px},${f1(y(p.d))}h0`;
+  }
+  const dots = (d, color, w) => (d
+    ? `<path d="${d}" stroke="${color}" stroke-width="${w}" stroke-linecap="round" fill="none" vector-effect="non-scaling-stroke"/>` : '');
+
+  return `<svg class="cchart" data-track="calib" viewBox="0 0 ${PLOT_W} ${H}" preserveAspectRatio="none" aria-hidden="true">`
+    + common
+    + (area ? `<path d="${area}" fill="var(--warm)" opacity=".16"/>` : '')
+    + (line ? `<path d="${line}" fill="none" stroke="var(--ink)" stroke-width="1.4" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>` : '')
+    + dots(lone, 'var(--ink)', 3) + dots(drift, 'var(--warm)', 4)
+    + dots(blind, 'var(--alert)', 2) + dots(bad, 'var(--alert)', 7)
+    + nowMark(nowIdx, n, H)
+    + `</svg><div class="yaxis">${yLabels}</div>`;
+}
+
 function trackRow(label, hint, svg) {
   // La courbe n'a pas le fond des pistes : c'est un trace, pas une barre.
   const cls = /class="(chart|sun|cchart)"/.test(svg) ? 'tplot' : 'tbar';
@@ -468,9 +596,9 @@ function trackRow(label, hint, svg) {
 
 // Piste dont la serie manque au payload. Hachuree et libellee, jamais vide :
 // une barre vide se lit « rien ne s'est passe », ce qui est faux.
-function missingRow(label) {
+function missingRow(label, msg = 'donnée absente') {
   return `<div class="track"><span class="tlab">${esc(label)}</span>`
-    + `<div class="tbar tbar-missing"><span>donnée absente</span></div></div>`;
+    + `<div class="tbar tbar-missing"><span>${esc(msg)}</span></div></div>`;
 }
 
 // Time labels under the tracks, from the same mark list the gridlines use.
@@ -810,6 +938,9 @@ function zoneCard(zone, f, t, marks, nowIdx) {
       ${!full || !zone.has_velux ? '' : f.has.velux
         ? trackRow('volet', "Ouverture du volet — hauteur de la barre = % ouvert", trackSvg('velux', nowIdx, f.velux, (v) => v == null ? null : { fill: 'var(--velux)', op: .8, h: Math.max(1.5, (v / 100) * STRIP_H) }))
         : missingRow('volet')}
+      ${!full || !(payload.calibration?.rooms || []).some((r) => r.room === zone.name) ? '' : (f.calib && f.calib.pts.length
+        ? trackRow('calibration', "Écart entre la sonde de la pièce et celle du radiateur, à chaque contrôle de calibration. Fond vert : tolérance. Trait rouge : contrôle en anomalie.", calibSvg(f.calib, t, marks, nowIdx))
+        : missingRow('calibration', 'aucun contrôle sur cette période'))}
       ${axisHtml(t, marks, nowIdx)}
       <div class="cursor" hidden></div>
     </div>
@@ -1467,223 +1598,30 @@ function calibHtml(cal, hist) {
       <tbody>${rooms}</tbody></table>` : '<p class="cal-fine">Aucune pièce dans ce rapport.</p>'}
     ${corrections ? `<h4>Recalages appliqués</h4><ul class="cal-list">${corrections}</ul>` : ''}
     ${skipped ? `<h4>Non recalées</h4><ul class="cal-list">${skipped}</ul>` : ''}
-    ${calibHistHtml(hist, cal)}
+    ${calibSummaryHtml(hist)}
     ${limits ? `<p class="cal-fine">${esc(limits)}</p>` : ''}
   </details>`;
 }
 
-// Hauteur d'une ligne de l'historique, en unites du viewBox ET en pixels (voir
+// Hauteur d'une ligne de calibration, en unites du viewBox ET en pixels (voir
 // .cchart) : les points se dessinent en traits sans echelle, pas en cercles.
 const CAL_ROW_H = 48;
 
-// Ce que la bulle relit au survol. Pose au rendu, comme `ecurve` : le curseur
-// ne recalcule rien, il lit ce qui est dessine.
-let chist = null;
-
-// Traits de minuit et jours, en TEMPS et non en rang : les controles n'ont pas
-// le pas des ticks du moteur, et `viewMarks` suit la fenetre choisie en haut de
-// page, que l'historique ne suit pas. Memes libelles que la vue 7 j des pieces,
-// centres dans leur journee et sur deux lignes.
-function dayMarks(t0, t1) {
-  const lines = [], labels = [], bounds = [t0];
-  for (let ts = t0 + 3600; ts < t1; ts += 3600) {
-    if (dayKey(ts) === dayKey(ts - 3600)) continue;
-    // Pas d'une heure : `ts` tombe entre 00:00 et 00:59, avant tout changement
-    // d'heure, donc l'heure locale ramene exactement a minuit.
-    const midnight = ts - secsIntoDay(ts) - (ts % 60);
-    lines.push(midnight);
-    bounds.push(midnight);
-  }
-  bounds.push(t1);
-  for (let b = 0; b < bounds.length - 1; b++) {
-    const a = bounds[b], z = bounds[b + 1];
-    if (z - a < (t1 - t0) * 0.06) continue;
-    labels.push([((a + z) / 2 - t0) / (t1 - t0), dayLabel(a).replace(' ', '\n')]);
-  }
-  return { lines, labels };
-}
-
-// L'ecart sonde − vanne de chaque piece, controle apres controle. La question
-// posee n'est pas « quel etait l'ecart » -- le tableau du dessus y repond --
-// mais « est-ce que ca empire, ou c'est comme ca depuis toujours ».
-//
-// Une ligne par piece plutot que sept courbes superposees : sauf la piece en
-// derive franche, elles vivent toutes entre −1 et +1 °C et s'y croiseraient
-// sans qu'on puisse suivre l'une d'elles. Toutes sur la MEME echelle, en
-// revanche : une echelle par ligne ferait d'un souffle de 0,3° un relief aussi
-// haut que 8° d'ecart, et c'est precisement la difference a voir.
-function calibHistHtml(hist, cal) {
-  chist = null;
+// Compte-rendu court, garde au niveau MAISON : combien de controles depuis
+// quand, combien en anomalie. Le detail -- quelle piece, quel ecart, quand --
+// vit desormais avec CHAQUE piece, sur sa propre carte (voir `calibFrame` et
+// `calibSvg`) : le repeter ici, agrege sur toutes les pieces a la fois, ne
+// repondrait a aucune question qu'on se pose en regardant une piece.
+function calibSummaryHtml(hist) {
   // Absent = export d'avant l'historique : rien a dire. Present mais vide =
-  // rien d'historise sur la fenetre : ca, ca se dit.
+  // rien d'historise : ca, ca se dit.
   if (hist === undefined) return '';
-  const days = Number(payload.window_days);
-  const title = `<h4>Écart sonde − vanne${days > 0 ? `, ${days} derniers jours` : ''}</h4>`;
   const runs = (Array.isArray(hist) ? hist : [])
     .map((r) => ({ r, ts: Math.floor(Date.parse(r && r.ts) / 1000) }))
     .filter((q) => Number.isFinite(q.ts) && q.r.rooms && typeof q.r.rooms === 'object')
     .sort((a, b) => a.ts - b.ts);
-  if (!runs.length) return `${title}<p class="cal-fine">Pas encore d'historique.</p>`;
-
-  // Ordre et nom court du dernier rapport ; une piece qui n'y figure plus garde
-  // sa ligne, a la suite, sous son nom complet.
-  const shortOf = new Map();
-  for (const r of Array.isArray(cal.rooms) ? cal.rooms : []) {
-    if (r && r.room) shortOf.set(r.room, r.short || r.room);
-  }
-  const seen = new Set();
-  for (const q of runs) for (const k of Object.keys(q.r.rooms)) seen.add(k);
-  const rooms = [...[...shortOf.keys()].filter((n) => seen.has(n)),
-                 ...[...seen].filter((n) => !shortOf.has(n))];
-  if (!rooms.length) return `${title}<p class="cal-fine">Aucune pièce dans l'historique.</p>`;
-
-  // La fenetre de la PAGE, pas du premier au dernier controle : un historique
-  // commence hier, etire sur toute la largeur, se lirait comme une semaine
-  // stable. Le vide a gauche dit qu'il n'y a rien avant.
-  const all = payload.t || [];
-  const gen = Math.floor(Date.parse(payload.generated_at) / 1000);
-  let t0 = Math.min(runs[0].ts, all.length ? all[0] : Infinity);
-  const t1 = Math.max(runs[runs.length - 1].ts, all.length ? all[all.length - 1] : -Infinity,
-    Number.isFinite(gen) ? gen : -Infinity);
-  if (t1 - t0 < 3600) t0 = t1 - 86400;
-
-  // Les seuils sont ceux du dernier rapport, dessines et non appliques : la
-  // bande de tolerance est le repere qui fait lire « hors norme » sans legende.
-  // L'echelle est bornee au seuil d'aberration -- une sonde morte qui renvoie
-  // −50° ecraserait sinon sept jours de toutes les pieces contre le zero. Ce qui
-  // depasse est trace au bord, et deja marque « aberrant » par le script.
-  const th = cal.thresholds || {};
-  const tol = typeof th.ecart === 'number' && th.ecart > 0 ? th.ecart : null;
-  const cap = typeof th.max_delta_skip === 'number' && th.max_delta_skip > 0 ? th.max_delta_skip : null;
-  const vals = [0];
-  if (tol) vals.push(-tol, tol);
-  let clipped = false;
-  for (const q of runs) {
-    for (const n of rooms) {
-      const d = q.r.rooms[n]?.delta;
-      if (typeof d !== 'number') continue;
-      if (cap && Math.abs(d) > cap) clipped = true;
-      vals.push(cap ? Math.max(-cap, Math.min(cap, d)) : d);
-    }
-  }
-  let lo = Math.min(...vals), hi = Math.max(...vals);
-  if (hi - lo < 4) { const m = (hi + lo) / 2; lo = m - 2; hi = m + 2; }
-  const pad = (hi - lo) * 0.08;
-  lo -= pad; hi += pad;
-
-  const H = CAL_ROW_H;
-  const x = (ts) => ((ts - t0) / (t1 - t0)) * PLOT_W;
-  const y = (v) => H - ((Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo)) * H;
-  const f1 = (v) => v.toFixed(1);
-  // Deux controles ne se relient que s'ils se suivent : un trou de plusieurs
-  // pas (script arrete, mac eteint) trace en ligne droite inventerait les
-  // mesures du milieu.
-  const step = tickStep(runs.map((q) => q.ts));
-  const joined = (a, b) => b.ts - a.ts <= 3 * step;
+  if (!runs.length) return `<p class="cal-fine">Pas encore d'historique.</p>`;
   const isBad = (q) => !!(CALIB_VERDICT[q.r.verdict] || {}).bad;
-
-  // Le fond commun a toutes les lignes. Les controles en anomalie le traversent
-  // de haut en bas, dessines dans CHAQUE ligne comme le marqueur « maintenant »
-  // des pieces : alignes au pixel, les segments se lisent comme un seul trait.
-  // Des anomalies qui se suivent forment une bande, pas une forêt de traits.
-  const ticks = niceTicks(lo, hi);
-  let common = '', yLabels = '';
-  // Toutes les graduations en traits, pas toutes en chiffres : sur 48 px, trois
-  // etiquettes se chevauchent. Le zero d'abord -- c'est le repere --, puis
-  // celles qui ont la place.
-  const labelled = [];
-  for (const v of [...ticks].sort((a, b) => Math.abs(a) - Math.abs(b))) {
-    if (labelled.every((u) => Math.abs(y(u) - y(v)) >= 18)) labelled.push(v);
-  }
-  const top = Math.max(...labelled);
-  ticks.forEach((v) => {
-    common += `<line x1="0" y1="${f1(y(v))}" x2="${PLOT_W}" y2="${f1(y(v))}" stroke="var(--line)"`
-      + ` stroke-width="1" stroke-dasharray="2 4" opacity=".8" vector-effect="non-scaling-stroke"/>`;
-    if (!labelled.includes(v)) return;
-    const pct = (y(v) / H) * 100;
-    const edge = pct < 12 ? 'edge-top' : pct > 88 ? 'edge-bot' : '';
-    yLabels += `<span class="${edge}" style="top:${pct.toFixed(2)}%">${v}${v === top ? '°' : ''}</span>`;
-  });
-  const marks = dayMarks(t0, t1);
-  for (const m of marks.lines) {
-    common += `<line x1="${f1(x(m))}" y1="0" x2="${f1(x(m))}" y2="${H}" stroke="var(--line)"`
-      + ` stroke-width="1" vector-effect="non-scaling-stroke"/>`;
-  }
-  if (tol) {
-    common += `<rect x="0" y="${f1(y(tol))}" width="${PLOT_W}" height="${f1(y(-tol) - y(tol))}" fill="var(--band-fill)"/>`;
-  }
-  common += `<line x1="0" y1="${f1(y(0))}" x2="${PLOT_W}" y2="${f1(y(0))}" stroke="var(--band)"`
-    + ` stroke-width="1" opacity=".45" vector-effect="non-scaling-stroke"/>`;
-  const vline = (px) => `<line x1="${px}" y1="0" x2="${px}" y2="${H}" stroke="var(--alert)"`
-    + ` stroke-width="1.5" opacity=".7" vector-effect="non-scaling-stroke"/>`;
-  for (let i = 0; i < runs.length; i++) {
-    if (!isBad(runs[i])) continue;
-    let j = i;
-    while (j + 1 < runs.length && isBad(runs[j + 1]) && joined(runs[j], runs[j + 1])) j++;
-    const a = x(runs[i].ts), b = x(runs[j].ts);
-    if (j > i) {
-      common += `<rect x="${f1(a)}" y="0" width="${f1(b - a)}" height="${H}" fill="var(--alert)" opacity=".1"/>`;
-    }
-    common += vline(f1(a)) + (j > i ? vline(f1(b)) : '');
-    i = j;
-  }
-
-  const rows = rooms.map((name, ri) => {
-    const pts = runs.map((q) => {
-      const e = q.r.rooms[name];
-      return { ts: q.ts, d: typeof e?.delta === 'number' ? e.delta : null, st: e?.status };
-    });
-    const segs = [];
-    let cur = null, prev = null;
-    for (const p of pts) {
-      if (p.d == null) { cur = prev = null; continue; }
-      if (!cur || !joined(prev, p)) { cur = []; segs.push(cur); }
-      cur.push(p);
-      prev = p;
-    }
-    // L'ecart se remplit jusqu'au zero : une piece en derive permanente devient
-    // une bande pleine d'un bout a l'autre de sa ligne, qui se lit « c'est comme
-    // ca depuis toujours » d'un coup d'oeil -- la ou un trait seul, haut dans
-    // sa ligne, demande de lire l'echelle. Meme argument que l'aire des pieces
-    // entre prevu et mesure.
-    const z0 = f1(y(0));
-    let line = '', area = '', lone = '';
-    for (const s of segs) {
-      const d = s.map((p, k) => `${k ? 'L' : 'M'}${f1(x(p.ts))},${f1(y(p.d))}`).join('');
-      if (s.length === 1) { lone += `${d}h0`; continue; }
-      line += d;
-      area += `${d}L${f1(x(s[s.length - 1].ts))},${z0}L${f1(x(s[0].ts))},${z0}Z`;
-    }
-    // Des points et non des cercles : le SVG est etire, un cercle y deviendrait
-    // une ellipse. Un trait de longueur nulle a bout rond, sans echelle, reste
-    // rond. Le rouge suit le statut de la piece (aberrant, illisible) ; une
-    // mesure illisible n'a pas d'ecart a placer, elle marque le pied de la ligne.
-    let drift = '', bad = '', blind = '';
-    for (const p of pts) {
-      const tone = (CALIB_STATUS[p.st] || {}).tone;
-      const px = f1(x(p.ts));
-      if (tone === 'bad' && p.d == null) blind += `M${px},${H}V${H - 9}`;
-      else if (tone === 'bad') bad += `M${px},${f1(y(p.d))}h0`;
-      else if (tone === 'drift' && p.d != null) drift += `M${px},${f1(y(p.d))}h0`;
-    }
-    const dots = (d, color, w) => (d
-      ? `<path d="${d}" stroke="${color}" stroke-width="${w}" stroke-linecap="round" fill="none" vector-effect="non-scaling-stroke"/>` : '');
-    const svg = `<svg class="cchart" data-i="${ri}" viewBox="0 0 ${PLOT_W} ${H}" preserveAspectRatio="none" aria-hidden="true">`
-      + common
-      + (area ? `<path d="${area}" fill="var(--warm)" opacity=".16"/>` : '')
-      + (line ? `<path d="${line}" fill="none" stroke="var(--ink)" stroke-width="1.4" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>` : '')
-      + dots(lone, 'var(--ink)', 3) + dots(drift, 'var(--warm)', 4)
-      + dots(blind, 'var(--alert)', 2) + dots(bad, 'var(--alert)', 7)
-      + `</svg><div class="yaxis">${yLabels}</div>`;
-    return trackRow(shortOf.get(name) || name, name, svg);
-  }).join('');
-
-  const axis = marks.labels.length
-    ? `<div class="track"><span class="tlab"></span><div class="axis axis-2l">${marks.labels
-      .map(([pos, l]) => `<span style="left:${(pos * 100).toFixed(2)}%">${esc(l).replace('\n', '<br>')}</span>`)
-      .join('')}</div></div>`
-    : '';
-
   const badRuns = runs.filter(isBad);
   const at = (q) => `${dayLabel(q.ts)} ${hhmm(q.ts)}`;
   const first = runs[0], last = badRuns[badRuns.length - 1];
@@ -1691,72 +1629,7 @@ function calibHistHtml(hist, cal) {
     + (badRuns.length
       ? `<b class="bad">${badRuns.length} en anomalie</b>${badRuns.length > 1 ? `, le dernier ${at(last)}` : ` : ${at(last)}`}`
       : 'aucun en anomalie');
-  const keys = [
-    tol ? `<i class="ckey ck-tol"></i>tolérance ±${tol.toFixed(1)}°` : '',
-    '<i class="ckey ck-drift"></i>dérive',
-    '<i class="ckey ck-bad"></i>écart aberrant ou mesure illisible',
-    '<i class="ckey ck-anom"></i>contrôle en anomalie',
-  ].filter(Boolean).join(' ')
-    + (clipped ? ` · au-delà de ±${cap.toFixed(1)}°, l'écart est tracé au bord` : '');
-
-  chist = { runs, rooms, t0, t1, step };
-  return `${title}<div class="cal-hist">
-    <p class="cal-sum">${sum}</p>
-    <div class="tracks">${rows}${axis}<div class="cursor" hidden></div></div>
-    <p class="cal-fine cal-keys">${keys}</p>
-  </div>`;
-}
-
-// Bulle de l'historique : le controle le plus proche EN TEMPS, lu sur la ligne
-// de la piece survolee. Au-dela d'un pas de controle, on ne rattache pas le
-// pointeur a un controle d'une autre heure -- on dit qu'il n'y en a pas.
-function bindCalibTip() {
-  const tip = $('tip');
-  const host = $('calib');
-  host.addEventListener('pointermove', (ev) => {
-    const box = ev.target.closest('.cal-hist');
-    const svg = ev.target.closest('.cchart');
-    if (!box || !svg || !chist) { tip.hidden = true; hideCursor(); return; }
-    const name = chist.rooms[Number(svg.dataset.i)];
-    const r = svg.getBoundingClientRect();
-    const f = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
-    const ts = chist.t0 + f * (chist.t1 - chist.t0);
-    let q = null, bd = Infinity;
-    for (const c of chist.runs) {
-      const dd = Math.abs(c.ts - ts);
-      if (dd < bd) { bd = dd; q = c; }
-    }
-    let at = Math.round(ts), body;
-    if (!q || bd > chist.step) {
-      body = '<span class="dim">aucun contrôle à ce moment</span>';
-    } else {
-      at = q.ts;
-      const e = q.r.rooms[name];
-      if (!e || typeof e !== 'object') {
-        body = `${esc(name)} : <span class="dim">absente de ce contrôle</span>`;
-      } else {
-        const st = e.status == null ? '' : (CALIB_STATUS[e.status] || { label: e.status }).label;
-        const act = e.action == null ? '' : (CALIB_ACTION[e.action] || e.action);
-        body = `${esc(name)} : <b>${signedDeg(e.delta)}</b>${st ? ` · ${esc(st)}` : ''}${act ? ` · ${esc(act)}` : ''}`;
-      }
-      const v = CALIB_VERDICT[q.r.verdict];
-      if (v && v.bad) {
-        body += `<br><b class="tip-bad">${v.label}</b>`;
-        // Les phrases du script, telles quelles. Repliees a la ligne : sur un
-        // telephone, une seule phrase sans retour sortirait de l'ecran.
-        const notes = strList(q.r.anomalies);
-        if (notes) body += `<ul class="tip-note">${notes}</ul>`;
-      }
-    }
-    tip.innerHTML = `<b>${dayLabel(at)} ${hhmm(at)}</b><br>${body}`;
-    tip.hidden = false;
-    // Position en fraction de la largeur : i / (n − 1) avec n = 2.
-    placeCursor(box, svg, (at - chist.t0) / (chist.t1 - chist.t0), 2);
-    const w = tip.offsetWidth;
-    tip.style.left = Math.min(window.innerWidth - w - 8, Math.max(8, ev.clientX - w / 2)) + 'px';
-    tip.style.top = (r.top - tip.offsetHeight - 8 < 8 ? r.bottom + 8 : r.top - tip.offsetHeight - 8) + 'px';
-  });
-  host.addEventListener('pointerleave', () => { tip.hidden = true; hideCursor(); });
+  return `<p class="cal-sum">${sum}</p>`;
 }
 
 // Sur le CLIC du titre et pas sur `toggle` : un <details> rendu deja ouvert emet
@@ -1944,6 +1817,31 @@ function plannedOcc(zoneName, tl, nowIdx) {
   return out;
 }
 
+// Controles de calibration de CETTE piece, bornes a la fenetre de la vue
+// choisie en haut de page -- pas tout l'historique. « Hier »/« Aujourd'hui »
+// ne doit montrer que sa propre journee, « 7 j » les sept jours : les controles
+// n'ont pas le pas du moteur, mais la carte, elle, doit parler de la meme
+// periode que le reste de ses pistes.
+function calibFrame(zoneName, tl) {
+  const hist = payload.calibration_history;
+  if (!Array.isArray(hist) || !hist.length || tl.length < 2) return null;
+  const t0 = tl[0], t1 = tl[tl.length - 1];
+  const pts = hist
+    .filter((r) => r && r.rooms && typeof r.rooms === 'object')
+    .map((r) => {
+      const ts = Math.floor(Date.parse(r.ts) / 1000);
+      const e = r.rooms[zoneName];
+      return {
+        ts, verdict: r.verdict,
+        d: typeof e?.delta === 'number' ? e.delta : null,
+        st: e?.status, act: e?.action,
+      };
+    })
+    .filter((p) => Number.isFinite(p.ts) && p.ts >= t0 && p.ts <= t1)
+    .sort((a, b) => a.ts - b.ts);
+  return { pts, t0, t1 };
+}
+
 function frameFor(zone, n, v) {
   const ser = zone.series || {};
   const pad = (arr) => [...Array(v.padStart).fill(null), ...arr, ...Array(v.padEnd).fill(null)];
@@ -1963,6 +1861,7 @@ function frameFor(zone, n, v) {
     has: { occ: 'occ' in ser, ac: 'ac' in ser, fan: 'fan' in ser, velux: 'velux' in ser,
            solar: 'solar' in ser },
     fc: forecastArrays(zone.name, v.t, v.nowIdx),
+    calib: calibFrame(zone.name, v.t),
     // Tenu a part de `occ` : les agregats (temps d'occupation, page par piece)
     // se calculent sur le VECU. Les fusionner ferait compter des heures qui
     // n'ont pas encore eu lieu.
@@ -2404,6 +2303,23 @@ function tipFor(track, f, i, t, full) {
       if (f.velux[i] == null) return 'pas de position connue';
       return `volet ${f.velux[i]}% ouvert<br>${dim(runSpan(f.velux, i, t))}`;
     }
+    case 'calib': {
+      // Pas le pas du moteur : on rattache au controle le plus proche EN
+      // TEMPS, et on dit qu'il n'y en a pas au-dela d'un pas de controle --
+      // memes regles que l'ancienne bulle du bloc groupe.
+      const pts = (f.calib && f.calib.pts) || [];
+      if (!pts.length) return 'aucun contrôle de calibration sur cette période';
+      const step = tickStep(pts.map((p) => p.ts));
+      let best = null, bd = Infinity;
+      for (const p of pts) { const d = Math.abs(p.ts - t[i]); if (d < bd) { bd = d; best = p; } }
+      if (!best || bd > step) return dim('pas de contrôle à cet instant');
+      const st = best.st == null ? '' : (CALIB_STATUS[best.st] || { label: best.st }).label;
+      const act = best.act == null ? '' : (CALIB_ACTION[best.act] || best.act);
+      const v = CALIB_VERDICT[best.verdict];
+      return `écart sonde − vanne : <b>${signedDeg(best.d)}</b>${st ? ` · ${esc(st)}` : ''}${act ? ` · ${esc(act)}` : ''}`
+        + `<br>${dim(stamp(best.ts, t[i]))}`
+        + (v && v.bad ? `<br><b class="tip-bad">${v.label}</b>` : '');
+    }
     default: {
       const temp = f.T[i], lo = f.bmin[i], hi = f.bmax[i];
       // La bulle ne dit que ce que le dessin porte : sur l'accueil la courbe se
@@ -2567,7 +2483,7 @@ function bindTip() {
   const tip = $('tip');
   $('zones').addEventListener('pointermove', (ev) => {
     const card = ev.target.closest('.zone');
-    const svg = ev.target.closest('.chart, .strip, .sun');
+    const svg = ev.target.closest('.chart, .strip, .sun, .cchart');
     if (!card || !svg || !payload) { tip.hidden = true; hideCursor(); return; }
     const f = frames.get(card.dataset.zone);
     const t = viewT;
@@ -3246,7 +3162,6 @@ bindGraphFold();
 bindEnergyTip();
 bindActions();
 bindCalibFold();
-bindCalibTip();
 // Probed once at boot and re-read after every command. Not on the refresh
 // timer: the directives change when someone changes them, and polling the
 // house's control plane every minute to redraw two buttons would be noise.
