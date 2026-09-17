@@ -1538,6 +1538,68 @@ const signedDeg = (v) => (typeof v === 'number'
 const strList = (arr) => (Array.isArray(arr) ? arr : [])
   .map((s) => `<li>${esc(typeof s === 'string' ? s : JSON.stringify(s))}</li>`).join('');
 
+// Rapport hebdo energie & chauffage, compose par un cron LLM le lundi matin.
+// Affiche TEL QUEL (le texte porte deja ses propres puces emoji) : le
+// reformater ici creerait une deuxieme mise en forme, libre de diverger de la
+// premiere. Depuis le 2026-09-17 ce texte ne part plus du tout sur Telegram --
+// cette carte en est la SEULE diffusion.
+function weeklyReportHtml(r) {
+  if (!r || !r.text) return '';
+  const age = typeof r.age_s === 'number' ? since(agoS(r.age_s))
+    : r.generated_at ? since(ago(r.generated_at)) : 'date inconnue';
+  const lines = r.text.split('\n').filter((l) => l.trim());
+  return `<div class="wreport">
+      <p class="wr-age">Rapport du lundi — ${esc(age)}</p>
+      ${lines.map((l) => `<p>${esc(l)}</p>`).join('')}
+    </div>`;
+}
+
+// Repartition chauffage/domestique, un jour par ligne. `data_points` est le
+// nombre d'heures collectees ce jour-la (24 un jour complet, moins pour
+// aujourd'hui) : montre sur combien d'heures repose l'estimation plutot que
+// de laisser croire a un jour plein quand il ne l'est pas encore.
+function pacDailyHtml(days) {
+  const rows = (Array.isArray(days) ? days : []).filter((d) => d && d.data_points);
+  if (!rows.length) return '';
+  const trs = rows.map((d) => `<tr>
+      <th scope="row">${esc(frDate(d.date))}</th>
+      <td>${d.pac_on_hours != null ? `${d.pac_on_hours} h / ${d.data_points} h` : '—'}</td>
+      <td>${typeof d.est_chauffage_kwh === 'number' ? kwh(d.est_chauffage_kwh) : '—'}</td>
+      <td>${typeof d.est_chauffage_eur === 'number' ? eur(d.est_chauffage_eur) : '—'}</td>
+      <td>${typeof d.outdoor_avg === 'number' ? deg1(d.outdoor_avg) : '—'}</td>
+    </tr>`).join('');
+  return `<table class="pac-daily">
+      <caption>Chauffage par jour</caption>
+      <thead><tr><th scope="col">Jour</th><th scope="col">PAC active</th>
+        <th scope="col">Chauffage estimé</th><th scope="col">Coût</th>
+        <th scope="col">Dehors (moy.)</th></tr></thead>
+      <tbody>${trs}</tbody>
+    </table>`;
+}
+
+// Meme convention que calibOpen juste en dessous : replie par defaut, retenu
+// au travers des re-rendus une fois que l'utilisateur y a touche.
+let chauffOpen = null;
+
+function chauffageHtml(weeklyReport, pacDaily) {
+  const report = weeklyReportHtml(weeklyReport);
+  const daily = pacDailyHtml(pacDaily);
+  if (!report && !daily) return '';
+  const open = chauffOpen ?? false;
+  return `<details class="chauff"${open ? ' open' : ''}>
+      <summary><b class="ctitle">Chauffage & énergie</b></summary>
+      ${report}
+      ${daily}
+    </details>`;
+}
+
+function bindChauffFold() {
+  $('chauffage').addEventListener('click', (ev) => {
+    const s = ev.target.closest('details.chauff > summary');
+    if (s) chauffOpen = !s.parentElement.open;
+  });
+}
+
 // Ouvert ou replie, retenu au travers des re-rendus comme les courbes. `null` =
 // l'utilisateur n'y a pas touche : le rapport s'ouvre alors seul sur anomalie.
 let calibOpen = null;
@@ -1945,6 +2007,7 @@ function render() {
   // deja calcule, et ca ne depend pas du support du selecteur.
   $('zones').classList.toggle('solo', !!(solo && shown.length));
   // Rapport MAISON, comme l'electricite : absent de la page d'une piece.
+  $('chauffage').innerHTML = solo && shown.length ? '' : chauffageHtml(payload.weekly_report, payload.pac_daily);
   $('calib').innerHTML = solo && shown.length ? '' : calibHtml(payload.calibration, payload.calibration_history);
 
   if (v.empty) {
@@ -3162,6 +3225,7 @@ bindGraphFold();
 bindEnergyTip();
 bindActions();
 bindCalibFold();
+bindChauffFold();
 // Probed once at boot and re-read after every command. Not on the refresh
 // timer: the directives change when someone changes them, and polling the
 // house's control plane every minute to redraw two buttons would be noise.
