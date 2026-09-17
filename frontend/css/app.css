@@ -703,95 +703,102 @@ button.act[aria-current] {
 .hdot.ok { background: var(--ok); }
 .hdot.bad { background: var(--alert); }
 
+/* ── Historique (jour / semaine) ──────────────────────────────────────────
+   Bande de choix commune a Calibration et Rapports (voir historyNavHtml dans
+   app.js). Scroll horizontal plutot que de tout faire tenir : sur 14 jours ou
+   12 semaines, tout faire tenir aurait force une taille de texte illisible. */
+.hnav {
+  display: flex; gap: .3rem; overflow-x: auto; padding: 0 0 .1rem;
+  margin: 0 0 .7rem;
+}
+.hnav-item {
+  appearance: none; border: 1px solid var(--edge); background: var(--card-2);
+  color: var(--ink-dim); font: inherit; font-size: .78rem; font-weight: 560;
+  padding: .35rem .65rem; border-radius: 999px; cursor: pointer;
+  white-space: nowrap; position: relative; flex: none;
+}
+.hnav-item.on { background: var(--ink); color: #fff; border-color: var(--ink); font-weight: 620; }
+/* Un jour avec anomalie se repere SANS ouvrir le jour : point rouge en coin,
+   visible que l'onglet soit actif ou non. */
+.hnav-dot {
+  position: absolute; top: -2px; right: -2px; width: 8px; height: 8px;
+  border-radius: 50%; background: var(--alert); border: 1.5px solid var(--card);
+}
+
 /* ── Calibration ───────────────────────────────────────────────────────────
-   Niveau MAISON comme .energy, meme habillage de carte. Replie par defaut : le
-   verdict et l'age tiennent dans le titre, et c'est la question qu'on pose. */
+   Niveau MAISON comme .energy, meme habillage de carte. */
 .calib {
   background: var(--card); border: 1px solid var(--edge); border-radius: 14px;
-  padding: .1rem .85rem; margin-top: .75rem; margin-bottom: .75rem; font-size: .84rem;
+  padding: .85rem; margin-top: .75rem; margin-bottom: .75rem; font-size: .84rem;
 }
 .calib.bad { border-left: 4px solid var(--alert); }
-.calib-none { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .6rem; padding: .7rem .85rem; }
-.calib > summary {
-  cursor: pointer; list-style: none; padding: .7rem 0;
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .6rem;
-}
-.calib > summary::-webkit-details-marker { display: none; }
-.calib > summary::before { content: '▸'; font-size: .8em; color: var(--ink-dim); }
-.calib[open] > summary::before { content: '▾'; }
-.calib > summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
-.calib .ctitle { font-size: .88rem; font-weight: 660; }
-.cal-verdict { font-size: .78rem; font-weight: 600; color: var(--ok); }
+.calib-none { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .6rem; }
+.cal-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .6rem; margin-bottom: .5rem; }
+.cal-verdict { font-size: .84rem; font-weight: 660; color: var(--ok); }
 .cal-verdict.bad { color: #a5281a; }
 .cal-age { font-size: .76rem; color: var(--ink-dim); }
-.calib[open] { padding-bottom: .8rem; }
 .calib h4 { margin: .8rem 0 .3rem; font-size: .74rem; font-weight: 620; color: var(--ink-dim); }
-.cal-thermo { margin: 0 0 .5rem; color: var(--ink-dim); }
+.cal-thermo { margin: 0 0 .6rem; color: var(--ink-dim); }
 .cal-thermo b { color: var(--ink); font-weight: 600; margin-right: .25rem; }
-.cal-list { margin: .2rem 0 .4rem; padding-left: 1.15rem; }
+.cal-list { margin: .2rem 0 .6rem; padding-left: 1.15rem; }
 .cal-list li { margin: .15rem 0; }
 .cal-anom { color: #a5281a; font-weight: 560; }
 .cal-fine { margin: .6rem 0 0; font-size: .74rem; color: var(--ink-dim); }
 
-/* Plafonnee : sur grand ecran, cinq colonnes etalees sur toute la largeur
-   eloignent le nom de la piece de ses chiffres. */
-.cal-rooms { width: 100%; max-width: 38rem; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-.cal-rooms th, .cal-rooms td {
-  padding: .3rem .4rem; text-align: right; border-bottom: 1px solid var(--edge);
-  vertical-align: baseline;
+/* Grille de cartes, une par piece -- remplace l'ancien tableau. La couleur
+   porte le statut d'un coup d'oeil ; le detail sonde/vanne (absent sur un
+   jour passe) reste en texte secondaire sous le delta. */
+.cal-grid {
+  display: grid; gap: .5rem;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
 }
-.cal-rooms thead th { font-size: .7rem; font-weight: 620; color: var(--ink-dim); }
-.cal-rooms tr > :first-child, .cal-rooms tr > :last-child { text-align: left; }
-.cal-rooms tbody th { font-weight: 560; }
-.cal-rooms td em { display: block; font-style: normal; font-size: .7rem; color: var(--ink-dim); }
-/* Derive : le travail normal du recalage, donc une teinte, pas une alarme. */
-.cal-rooms tr.cal-drift td:nth-child(4) { color: var(--warm); font-weight: 600; }
-.cal-rooms tr.cal-bad { background: #fdecea; }
-.cal-rooms tr.cal-bad td:last-child { color: #a5281a; font-weight: 600; }
-/* Le nom court de la piece vient du rapport : sur telephone, « Salle de Bains 1 »
-   pousserait les chiffres hors de l'ecran. */
-.cal-short { display: none; }
-@media (max-width: 520px) {
-  .cal-long { display: none; }
-  .cal-short { display: inline; }
+.cal-card {
+  border: 1px solid var(--edge); border-radius: 10px; padding: .5rem .6rem;
+  display: flex; flex-direction: column; gap: .1rem;
+  border-left-width: 3px; background: var(--card);
 }
+.cal-card.cal-ok { border-left-color: var(--ok); }
+.cal-card.cal-drift { border-left-color: var(--warm); }
+.cal-card.cal-bad, .cal-card.cal-suspect, .cal-card.cal-missing { border-left-color: var(--alert); background: #fdecea; }
+.cal-card-room { font-size: .8rem; font-weight: 620; }
+.cal-card-delta { font-size: 1.05rem; font-weight: 660; font-variant-numeric: tabular-nums; }
+.cal-card-sub, .cal-card-status { font-size: .7rem; color: var(--ink-dim); }
 
 /* Trace de calibration d'une piece, dans sa propre carte (voir CAL_ROW_H dans
    app.js) : le viewBox vaut les pixels, les reperes y gardent leurs proportions. */
 .cchart { width: 100%; height: 48px; display: block; touch-action: pan-y; }
-.cal-sum { margin: 0 0 .1rem; font-size: .76rem; color: var(--ink-dim); }
-.cal-sum .bad { color: #a5281a; font-weight: 600; }
-/* ── Chauffage & énergie ───────────────────────────────────────────────────
-   Meme carte-details que .calib, juste au-dessus : rapport hebdo (texte du
-   cron LLM, affiché tel quel) + repartition chauffage/domestique par jour. */
+
+/* ── Rapports ──────────────────────────────────────────────────────────────
+   Meme habillage de carte que .calib. Le texte du cron (voir
+   parseReportSections dans app.js) devient une carte par section plutot
+   qu'un mur de paragraphes -- l'emoji du cron sert d'icone, pas redessine. */
 .chauff {
   background: var(--card); border: 1px solid var(--edge); border-radius: 14px;
-  padding: .1rem .85rem; margin-top: .75rem; margin-bottom: .75rem; font-size: .84rem;
+  padding: .85rem; margin-top: .75rem; margin-bottom: .75rem; font-size: .84rem;
 }
-.chauff > summary {
-  cursor: pointer; list-style: none; padding: .7rem 0;
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .6rem;
+.wr-age { margin: 0 0 .6rem; font-size: .76rem; color: var(--ink-dim); }
+.rplain { margin: 0 0 .6rem; color: var(--ink-dim); }
+.rsec { margin: 0 0 .6rem; padding: .55rem .65rem; background: var(--card-2); border-radius: 10px; }
+.rsec-h { display: flex; align-items: center; gap: .4rem; font-size: .82rem; font-weight: 660; }
+.rsec-icon { font-size: 1rem; }
+.rsec ul { margin: .35rem 0 0; padding-left: 1.15rem; }
+.rsec li { margin: .15rem 0; }
+.rsec-h2 { margin: .9rem 0 .4rem; font-size: .78rem; font-weight: 620; color: var(--ink-dim); }
+.rsec-unit { font-weight: 500; }
+
+/* Graphique a barres du chauffage estime par jour -- remplace l'ancien
+   tableau. Hauteur des barres en flex (pas de SVG : 14 barres CSS suffisent
+   et restent lisibles a toute largeur, meme sur telephone). */
+.pac-chart { display: flex; align-items: flex-end; gap: .3rem; height: 6.5rem; overflow-x: auto; }
+.pac-bar {
+  flex: 1 0 2rem; min-width: 2rem; height: 100%;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  gap: .15rem;
 }
-.chauff > summary::-webkit-details-marker { display: none; }
-.chauff > summary::before { content: '▸'; font-size: .8em; color: var(--ink-dim); }
-.chauff[open] > summary::before { content: '▾'; }
-.chauff > summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
-.chauff .ctitle { font-size: .88rem; font-weight: 660; }
-.chauff[open] { padding-bottom: .8rem; }
-.wreport p { margin: .3rem 0; }
-.wr-age { margin: 0 0 .4rem; font-size: .74rem; color: var(--ink-dim); }
-.pac-daily {
-  width: 100%; max-width: 34rem; border-collapse: collapse;
-  font-variant-numeric: tabular-nums; margin-top: .7rem;
-}
-.pac-daily caption { text-align: left; font-size: .74rem; font-weight: 620; color: var(--ink-dim); margin-bottom: .3rem; }
-.pac-daily th, .pac-daily td {
-  padding: .3rem .4rem; text-align: right; border-bottom: 1px solid var(--edge);
-  vertical-align: baseline;
-}
-.pac-daily thead th { font-size: .7rem; font-weight: 620; color: var(--ink-dim); }
-.pac-daily tr > :first-child { text-align: left; }
-.pac-daily tbody th { font-weight: 560; }
+.pac-val { font-size: .68rem; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.pac-fill { width: 100%; border-radius: 4px 4px 0 0; background: var(--warm); min-height: 2px; }
+.pac-bar.partial .pac-fill { opacity: .45; }
+.pac-day { font-size: .64rem; color: var(--ink-dim); }
 .tip .tip-bad { color: #a5281a; }
 .tip .tip-note {
   margin: .1rem 0 0; padding-left: 1rem; max-width: 17rem;

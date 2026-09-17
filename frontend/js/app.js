@@ -1544,175 +1544,261 @@ const signedDeg = (v) => (typeof v === 'number'
 const strList = (arr) => (Array.isArray(arr) ? arr : [])
   .map((s) => `<li>${esc(typeof s === 'string' ? s : JSON.stringify(s))}</li>`).join('');
 
-// Rapport hebdo energie & chauffage, compose par un cron LLM le lundi matin.
-// Affiche TEL QUEL (le texte porte deja ses propres puces emoji) : le
-// reformater ici creerait une deuxieme mise en forme, libre de diverger de la
-// premiere. Depuis le 2026-09-17 ce texte ne part plus du tout sur Telegram --
-// cette carte en est la SEULE diffusion.
-function weeklyReportHtml(r) {
-  if (!r || !r.text) return '';
-  const age = typeof r.age_s === 'number' ? since(agoS(r.age_s))
-    : r.generated_at ? since(ago(r.generated_at)) : 'date inconnue';
-  const lines = r.text.split('\n').filter((l) => l.trim());
-  return `<div class="wreport">
-      <p class="wr-age">Rapport du lundi — ${esc(age)}</p>
-      ${lines.map((l) => `<p>${esc(l)}</p>`).join('')}
+// Aujourd'hui, dans le calendrier MAISON (pas celui du telephone qui lit la
+// page) -- meme raisonnement que houseNow() : l'age des rapports se compte
+// depuis l'export, pas depuis une horloge locale qui peut dériver. Nommage
+// distinct du `todayKey` (horloge du NAVIGATEUR) plus bas dans ce fichier,
+// qui borne un champ date cote formulaire -- une autre question.
+const houseTodayKey = () => dayKey(houseNow() / 1000);
+const houseYesterdayKey = () => dayKey(houseNow() / 1000 - 86400);
+
+// Bande de navigation horizontale, generique entre le jour (calibration) et la
+// semaine (rapports) : memes classes, la difference est dans les items qu'on
+// lui donne. `sel` est l'id actuellement choisi (peut etre `null` -> rien de
+// marque, l'appelant affiche alors le plus recent par defaut).
+function historyNavHtml(items, sel, targetId) {
+  if (!items.length) return '';
+  return `<div class="hnav" data-target="${esc(targetId)}" role="tablist" aria-label="Historique">
+      ${items.map((it) => `<button type="button" class="hnav-item${it.id === sel ? ' on' : ''}"
+          data-id="${esc(it.id)}" role="tab" aria-selected="${it.id === sel}"${it.title ? ` title="${esc(it.title)}"` : ''}>
+          ${it.label}${it.flag ? '<i class="hnav-dot" aria-hidden="true"></i>' : ''}
+        </button>`).join('')}
     </div>`;
 }
 
-// Repartition chauffage/domestique, un jour par ligne. `data_points` est le
-// nombre d'heures collectees ce jour-la (24 un jour complet, moins pour
-// aujourd'hui) : montre sur combien d'heures repose l'estimation plutot que
-// de laisser croire a un jour plein quand il ne l'est pas encore.
+/* ── Rapports : historique + mise en forme visuelle ─────────────────────── */
+
+// Semaine choisie dans l'onglet Rapports ("2026-W38") ou null = la plus
+// recente. Pas persiste : on rouvre toujours sur le dernier rapport.
+let chauffWeek = null;
+
+// Le texte du rapport suit toujours la meme forme (voir le prompt du cron
+// "Rapport énergie Jeedom") : un titre, puis des blocs separes par une ligne
+// vide, chaque bloc commencant par "<emoji> Titre" suivi de puces "• ...".
+// Le decouper en cartes visuelles plutot que l'afficher tel quel -- mais SANS
+// reformuler une seule phrase : si un bloc ne suit pas ce moule (une ligne
+// seule, par ex. le thermostat), il redescend en simple paragraphe plutot que
+// d'etre force dans une carte qui ne lui correspond pas.
+function parseReportSections(text) {
+  const blocks = text.split(/\n{2,}/).map((b) => b.trim()).filter(Boolean);
+  const sections = [];
+  for (const block of blocks) {
+    const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) continue;
+    // Titre du rapport ("⚡ Énergie & Chauffage — Semaine S38") : sert de
+    // sous-titre au nav, pas répété dans le corps.
+    if (sections.length === 0 && !lines[0].startsWith('•') && lines.length === 1) {
+      sections.push({ kind: 'title', text: lines[0] });
+      continue;
+    }
+    const bullets = lines.filter((l) => l.startsWith('•')).map((l) => l.replace(/^•\s*/, ''));
+    if (bullets.length && !lines[0].startsWith('•')) {
+      // "<emoji> Titre" -> separe l'emoji (premier "mot") du reste.
+      const m = /^(\S+)\s*(.*)$/.exec(lines[0]);
+      sections.push({ kind: 'section', icon: m ? m[1] : '', heading: m ? m[2] : lines[0], bullets });
+    } else {
+      sections.push({ kind: 'plain', lines });
+    }
+  }
+  return sections;
+}
+
+function reportSectionsHtml(text) {
+  const sections = parseReportSections(text);
+  return sections.map((s) => {
+    if (s.kind === 'title') return '';   // deja porte par le nav + l'entete
+    if (s.kind === 'plain') return `<p class="rplain">${s.lines.map(esc).join('<br>')}</p>`;
+    return `<div class="rsec">
+        <b class="rsec-h"><span class="rsec-icon" aria-hidden="true">${esc(s.icon)}</span>${esc(s.heading)}</b>
+        <ul>${s.bullets.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>
+      </div>`;
+  }).join('');
+}
+
+// Repartition chauffage/domestique par jour, en graphique a barres plutot
+// qu'en tableau : le tableau precedent listait les memes 14 chiffres sans
+// qu'aucun ne saute aux yeux. La hauteur porte le kWh estime ; le detail
+// (heures suivies, cout, dehors) reste lisible au survol/tap (`title`) plutot
+// que de charger l'axe. `data_points` est le nombre d'heures REELLEMENT
+// collectees ce jour-la (24 un jour complet, moins pour aujourd'hui) : un
+// jour partiel est visuellement plus pale, pas caché — une barre absente
+// aurait été lue comme "aucun chauffage", pas comme "pas encore mesuré".
 function pacDailyHtml(days) {
   const rows = (Array.isArray(days) ? days : []).filter((d) => d && d.data_points);
   if (!rows.length) return '';
-  const trs = rows.map((d) => `<tr>
-      <th scope="row">${esc(frDate(d.date))}</th>
-      <td>${d.pac_on_hours != null ? `${d.pac_on_hours} h / ${d.data_points} h` : '—'}</td>
-      <td>${typeof d.est_chauffage_kwh === 'number' ? kwh(d.est_chauffage_kwh) : '—'}</td>
-      <td>${typeof d.est_chauffage_eur === 'number' ? eur(d.est_chauffage_eur) : '—'}</td>
-      <td>${typeof d.outdoor_avg === 'number' ? deg1(d.outdoor_avg) : '—'}</td>
-    </tr>`).join('');
-  return `<table class="pac-daily">
-      <caption>Chauffage par jour</caption>
-      <thead><tr><th scope="col">Jour</th><th scope="col">PAC active</th>
-        <th scope="col">Chauffage estimé</th><th scope="col">Coût</th>
-        <th scope="col">Dehors (moy.)</th></tr></thead>
-      <tbody>${trs}</tbody>
-    </table>`;
+  const max = Math.max(1, ...rows.map((d) => d.est_chauffage_kwh || 0));
+  const bars = rows.map((d) => {
+    const kwhVal = typeof d.est_chauffage_kwh === 'number' ? d.est_chauffage_kwh : null;
+    const h = kwhVal != null ? Math.max(2, Math.round((kwhVal / max) * 100)) : 2;
+    const partial = d.data_points < 20;
+    const detail = [
+      frDate(d.date),
+      kwhVal != null ? `${kwh(kwhVal)} chauffage` : 'chauffage non estimé',
+      typeof d.est_chauffage_eur === 'number' ? eur(d.est_chauffage_eur) : null,
+      d.pac_on_hours != null ? `PAC active ${d.pac_on_hours} h / ${d.data_points} h suivies` : null,
+      typeof d.outdoor_avg === 'number' ? `dehors ${deg1(d.outdoor_avg)} en moyenne` : null,
+    ].filter(Boolean).join(' · ');
+    return `<div class="pac-bar${partial ? ' partial' : ''}" title="${esc(detail)}">
+        <span class="pac-val">${kwhVal != null ? Math.round(kwhVal) : '—'}</span>
+        <span class="pac-fill" style="height:${h}%"></span>
+        <span class="pac-day">${esc(frDate(d.date))}</span>
+      </div>`;
+  }).join('');
+  return `<div class="pac-chart-wrap">
+      <p class="rsec-h2">Chauffage par jour <span class="rsec-unit">(kWh estimés)</span></p>
+      <div class="pac-chart">${bars}</div>
+    </div>`;
 }
 
-// Ouverte par defaut : depuis le passage aux onglets, cette carte EST tout le
-// contenu de l'onglet "Rapports" -- la replier par defaut cacherait la seule
-// chose qu'on est venu y lire. Retenu au travers des re-rendus une fois que
-// l'utilisateur la replie lui-meme (peu utile en pratique, mais coherent avec
-// calibOpen juste en dessous, et sans cout a garder).
-let chauffOpen = null;
-
-function chauffageHtml(weeklyReport, pacDaily) {
-  const report = weeklyReportHtml(weeklyReport);
+function chauffageHtml(weeklyReports, pacDaily) {
+  const reports = Array.isArray(weeklyReports) ? weeklyReports : [];
   const daily = pacDailyHtml(pacDaily);
-  if (!report && !daily) return '';
-  const open = chauffOpen ?? true;
-  return `<details class="chauff"${open ? ' open' : ''}>
-      <summary><b class="ctitle">Chauffage & énergie</b></summary>
-      ${report}
+  if (!reports.length && !daily) return '';
+
+  const nav = historyNavHtml(
+    reports.map((r) => ({ id: r.week, label: esc((r.week || '').replace(/^\d+-W/, 'S')) })),
+    chauffWeek, 'chauffage');
+  const selected = reports.find((r) => r.week === chauffWeek) || reports[reports.length - 1];
+  const age = selected && (typeof selected.age_s === 'number' ? since(agoS(selected.age_s))
+    : selected.generated_at ? since(ago(selected.generated_at)) : 'date inconnue');
+
+  return `<section class="chauff">
+      ${nav}
+      ${selected ? `<p class="wr-age">Rapport ${esc(age)}</p>${reportSectionsHtml(selected.text || '')}`
+        : '<p class="cal-fine">Aucun rapport pour l\'instant.</p>'}
       ${daily}
-    </details>`;
+    </section>`;
 }
 
 function bindChauffFold() {
   $('chauffage').addEventListener('click', (ev) => {
-    const s = ev.target.closest('details.chauff > summary');
-    if (s) chauffOpen = !s.parentElement.open;
+    const b = ev.target.closest('.hnav-item[data-id]');
+    if (!b) return;
+    chauffWeek = b.dataset.id;
+    if (payload) render();
   });
 }
 
-// Ouvert ou replie, retenu au travers des re-rendus comme les courbes. `null` =
-// l'utilisateur n'y a pas touche : s'ouvre alors par defaut (voir calibHtml).
-let calibOpen = null;
+/* ── Calibration : historique + mise en forme visuelle ──────────────────── */
+
+// Jour choisi dans l'onglet Calibration ("2026-09-17") ou null = le plus
+// recent. Pas persiste, meme raison que chauffWeek ci-dessus.
+let calibDay = null;
+
+// Un jour -> une liste de pieces, que l'entree vienne du rapport LIVE
+// (cal.rooms : tableau avec sonde/vanne en plus) ou d'un jour passe
+// (calibration_daily[].rooms : dict room -> {delta,status,action} seulement,
+// voir comfort-dashboard-export.py). Meme forme en sortie pour un seul
+// gabarit de carte.
+function normalizeRooms(rooms) {
+  if (Array.isArray(rooms)) return rooms;
+  if (rooms && typeof rooms === 'object') {
+    return Object.entries(rooms).map(([room, r]) => ({ room, ...r }));
+  }
+  return [];
+}
+
+// Grille de cartes, une par piece -- remplace l'ancien tableau dense. La
+// couleur porte le statut (vert/orange/rouge) ; le detail sonde/vanne ne
+// s'affiche que s'il existe (absent sur un jour passe, l'historique ne le
+// garde pas).
+function roomGridHtml(rooms) {
+  const list = normalizeRooms(rooms);
+  if (!list.length) return '<p class="cal-fine">Aucune pièce dans ce rapport.</p>';
+  return `<div class="cal-grid">
+      ${list.map((r) => {
+        const st = CALIB_STATUS[r.status] || { label: r.status ?? '—' };
+        const act = r.action == null ? '' : (CALIB_ACTION[r.action] || r.action);
+        const tone = st.tone || 'ok';
+        return `<div class="cal-card cal-${tone}">
+            <b class="cal-card-room">${esc(r.room ?? r.short ?? '?')}</b>
+            <span class="cal-card-delta">${signedDeg(r.delta)}</span>
+            ${r.sb != null || r.valve != null
+              ? `<span class="cal-card-sub">${deg1(r.sb)} · vanne ${deg1(r.valve)}</span>` : ''}
+            <span class="cal-card-status">${esc(st.label)}${act ? ` · ${esc(act)}` : ''}</span>
+          </div>`;
+      }).join('')}
+    </div>`;
+}
 
 // Dernier rapport de calibration des sondes. Tout vient du rapport : pieces,
 // seuils, verdict, et les phrases de correction deja formees par le script --
 // affichees telles quelles, les reformuler serait s'ancrer sur leur forme.
-function calibHtml(cal, hist) {
-  // Champ absent = export d'avant la calibration : rien a dire. `null` = le
-  // champ existe mais aucun rapport n'a encore ete ecrit : ca, ca se dit.
+function calibHtml(cal, daily) {
+  // Champ absent = export d'avant la calibration : rien a dire.
   if (cal === undefined) return '';
-  const head = '<b class="ctitle">Calibration des sondes</b>';
-  if (!cal) {
-    return `<section class="calib calib-none">${head}<span class="cal-age">aucun rapport pour l'instant</span></section>`;
-  }
-  const v = CALIB_VERDICT[cal.verdict] || { label: esc(cal.verdict ?? 'verdict inconnu') };
-  const age = typeof cal.age_s === 'number' ? since(agoS(cal.age_s))
-    : cal.ts ? since(ago(cal.ts)) : 'date inconnue';
-  // Ouverte par defaut, comme chauffOpen ci-dessus : cette carte est tout
-  // l'onglet "Calibration" depuis le passage aux onglets, pas une carte parmi
-  // d'autres qu'on ouvrirait seulement sur anomalie.
-  const open = calibOpen ?? true;
+  const days = Array.isArray(daily) ? daily : [];
+  const today = houseTodayKey();
+  const sel = calibDay ?? today;
+  const isToday = sel === today;
+  const dayEntry = days.find((d) => d.date === sel);
 
-  const th = cal.thermostat_rdc;
+  if (!cal && !days.length) {
+    return '<section class="calib calib-none"><span class="cal-age">aucun rapport pour l\'instant</span></section>';
+  }
+
+  const nav = historyNavHtml(
+    days.map((d) => ({
+      id: d.date,
+      label: esc(d.date === today ? "Auj." : d.date === houseYesterdayKey() ? 'Hier' : frDate(d.date)),
+      flag: d.anomaly_runs > 0,
+      title: `${d.runs} contrôle${d.runs > 1 ? 's' : ''}${d.anomaly_runs ? `, ${d.anomaly_runs} en anomalie` : ''}`,
+    })), sel, 'calib');
+
+  // Aujourd'hui : le rapport LIVE (plus riche -- sonde/vanne, thermostat,
+  // corrections). Un autre jour : le resume de comfort-dashboard-export.py,
+  // reduit au dernier controle du jour.
+  const v = isToday && cal ? (CALIB_VERDICT[cal.verdict] || { label: esc(cal.verdict ?? 'verdict inconnu') })
+    : dayEntry ? (CALIB_VERDICT[dayEntry.verdict] || { label: esc(dayEntry.verdict ?? 'verdict inconnu') })
+    : null;
+  const age = isToday && cal
+    ? (typeof cal.age_s === 'number' ? since(agoS(cal.age_s)) : cal.ts ? since(ago(cal.ts)) : 'date inconnue')
+    : dayEntry ? `${dayEntry.runs} contrôle${dayEntry.runs > 1 ? 's' : ''} ce jour-là` : '';
+
+  const th = isToday && cal && cal.thermostat_rdc;
   const thermo = th
     ? `<p class="cal-thermo"><b>Thermostat RDC</b> ${deg1(th.T)}`
       + `${th.setpoint != null ? ` · consigne ${deg1(th.setpoint)}` : ''}`
       + `${typeof th.valve_pct === 'number' ? ` · vanne ouverte ${Math.round(th.valve_pct)} %` : ''}</p>`
     : '';
 
-  const rooms = (Array.isArray(cal.rooms) ? cal.rooms : []).map((r) => {
-    const st = CALIB_STATUS[r.status] || { label: r.status ?? '—' };
-    const act = r.action == null ? '' : (CALIB_ACTION[r.action] || r.action);
-    return `<tr class="${st.tone ? `cal-${st.tone}` : ''}">`
-      + `<th scope="row"><span class="cal-long">${esc(r.room ?? r.short ?? '?')}</span>`
-      + `<span class="cal-short" title="${esc(r.room ?? '')}">${esc(r.short ?? r.room ?? '?')}</span></th>`
-      + `<td>${deg1(r.sb)}</td><td>${deg1(r.valve)}</td><td>${signedDeg(r.delta)}</td>`
-      + `<td>${esc(st.label)}${act ? `<em>${esc(act)}</em>` : ''}</td></tr>`;
-  }).join('');
+  const rooms = isToday && cal ? cal.rooms : (dayEntry ? dayEntry.rooms : null);
+  const anomalies = strList(isToday && cal ? cal.anomalies : (dayEntry ? dayEntry.anomalies : []));
+  const corrections = isToday && cal ? strList(cal.corrections) : '';
+  const skipped = isToday && cal ? strList(cal.skipped) : '';
 
-  const t = cal.thresholds || {};
+  const t = (isToday && cal && cal.thresholds) || {};
   const limits = [
     typeof t.ecart === 'number' ? `écart toléré ${t.ecart.toFixed(1)}°` : '',
     typeof t.max_delta_skip === 'number'
       ? `au-delà de ${t.max_delta_skip.toFixed(1)}°, l'écart est jugé aberrant et rien n'est recalé` : '',
   ].filter(Boolean).join(' · ');
 
-  const anomalies = strList(cal.anomalies);
-  const corrections = strList(cal.corrections);
-  const skipped = strList(cal.skipped);
-
-  return `<details class="calib${v.bad ? ' bad' : ''}"${open ? ' open' : ''}>
-    <summary>${head}<span class="cal-verdict${v.bad ? ' bad' : ''}">${v.label}</span><span class="cal-age">${esc(age)}</span></summary>
-    ${anomalies ? `<ul class="cal-list cal-anom">${anomalies}</ul>` : ''}
-    ${thermo}
-    ${rooms ? `<table class="cal-rooms">
-      <thead><tr><th scope="col">Pièce</th>
-        <th scope="col" title="Température mesurée par la sonde de la pièce">Sonde</th>
-        <th scope="col" title="Température que lit la vanne du radiateur">Vanne</th>
-        <th scope="col" title="Sonde moins vanne">Écart</th><th scope="col">État</th></tr></thead>
-      <tbody>${rooms}</tbody></table>` : '<p class="cal-fine">Aucune pièce dans ce rapport.</p>'}
-    ${corrections ? `<h4>Recalages appliqués</h4><ul class="cal-list">${corrections}</ul>` : ''}
-    ${skipped ? `<h4>Non recalées</h4><ul class="cal-list">${skipped}</ul>` : ''}
-    ${calibSummaryHtml(hist)}
-    ${limits ? `<p class="cal-fine">${esc(limits)}</p>` : ''}
-  </details>`;
+  return `<section class="calib${v && v.bad ? ' bad' : ''}">
+      ${nav}
+      <div class="cal-head">
+        ${v ? `<span class="cal-verdict${v.bad ? ' bad' : ''}">${v.label}</span>` : ''}
+        <span class="cal-age">${esc(age)}</span>
+      </div>
+      ${anomalies ? `<ul class="cal-list cal-anom">${anomalies}</ul>` : ''}
+      ${thermo}
+      ${rooms ? roomGridHtml(rooms) : '<p class="cal-fine">Aucune donnée pour ce jour.</p>'}
+      ${corrections ? `<h4>Recalages appliqués</h4><ul class="cal-list">${corrections}</ul>` : ''}
+      ${skipped ? `<h4>Non recalées</h4><ul class="cal-list">${skipped}</ul>` : ''}
+      ${limits ? `<p class="cal-fine">${esc(limits)}</p>` : ''}
+    </section>`;
 }
 
 // Hauteur d'une ligne de calibration, en unites du viewBox ET en pixels (voir
 // .cchart) : les points se dessinent en traits sans echelle, pas en cercles.
 const CAL_ROW_H = 48;
 
-// Compte-rendu court, garde au niveau MAISON : combien de controles depuis
-// quand, combien en anomalie. Le detail -- quelle piece, quel ecart, quand --
-// vit desormais avec CHAQUE piece, sur sa propre carte (voir `calibFrame` et
-// `calibSvg`) : le repeter ici, agrege sur toutes les pieces a la fois, ne
-// repondrait a aucune question qu'on se pose en regardant une piece.
-function calibSummaryHtml(hist) {
-  // Absent = export d'avant l'historique : rien a dire. Present mais vide =
-  // rien d'historise : ca, ca se dit.
-  if (hist === undefined) return '';
-  const runs = (Array.isArray(hist) ? hist : [])
-    .map((r) => ({ r, ts: Math.floor(Date.parse(r && r.ts) / 1000) }))
-    .filter((q) => Number.isFinite(q.ts) && q.r.rooms && typeof q.r.rooms === 'object')
-    .sort((a, b) => a.ts - b.ts);
-  if (!runs.length) return `<p class="cal-fine">Pas encore d'historique.</p>`;
-  const isBad = (q) => !!(CALIB_VERDICT[q.r.verdict] || {}).bad;
-  const badRuns = runs.filter(isBad);
-  const at = (q) => `${dayLabel(q.ts)} ${hhmm(q.ts)}`;
-  const first = runs[0], last = badRuns[badRuns.length - 1];
-  const sum = `${runs.length} contrôle${runs.length > 1 ? 's' : ''} depuis ${at(first)} · `
-    + (badRuns.length
-      ? `<b class="bad">${badRuns.length} en anomalie</b>${badRuns.length > 1 ? `, le dernier ${at(last)}` : ` : ${at(last)}`}`
-      : 'aucun en anomalie');
-  return `<p class="cal-sum">${sum}</p>`;
-}
-
-// Sur le CLIC du titre et pas sur `toggle` : un <details> rendu deja ouvert emet
-// lui aussi `toggle`, et l'ouverture automatique sur anomalie passerait alors
-// pour un choix de l'utilisateur. Le clavier (Entree, Espace) passe par `click`.
 function bindCalibFold() {
   $('calib').addEventListener('click', (ev) => {
-    const s = ev.target.closest('details.calib > summary');
-    if (s) calibOpen = !s.parentElement.open;
+    const b = ev.target.closest('.hnav-item[data-id]');
+    if (!b) return;
+    calibDay = b.dataset.id;
+    if (payload) render();
   });
 }
 
@@ -2035,8 +2121,8 @@ function render() {
   $('zones').classList.toggle('solo', !!(solo && shown.length));
   // Rapports MAISON, chacun sur son propre onglet desormais : plus de partage
   // avec la page d'une piece (qui n'existe que sous "dashboard").
-  $('chauffage').innerHTML = tab !== 'rapports' ? '' : chauffageHtml(payload.weekly_report, payload.pac_daily);
-  $('calib').innerHTML = tab !== 'calibration' ? '' : calibHtml(payload.calibration, payload.calibration_history);
+  $('chauffage').innerHTML = tab !== 'rapports' ? '' : chauffageHtml(payload.weekly_reports, payload.pac_daily);
+  $('calib').innerHTML = tab !== 'calibration' ? '' : calibHtml(payload.calibration, payload.calibration_daily);
 
   if (v.empty) {
     $('zones').innerHTML = '<p class="empty">Pas encore de journée complète avant aujourd\'hui.</p>';
