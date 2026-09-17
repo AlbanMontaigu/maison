@@ -226,6 +226,46 @@ body {
 .wcell.now { background: var(--card-2); box-shadow: inset 0 0 0 1px var(--edge); }
 .wcell.now .wh { color: var(--ink); font-weight: 660; }
 
+/* ── Onglets ───────────────────────────────────────────────────────────────
+   Navigation PRINCIPALE (tableau de bord / calibration / rapports), donc plus
+   grande et plus affirmee que .seg (un simple filtre secondaire sur la meme
+   page). Collante sous l'en-tete : sur une longue page de calibration ou de
+   rapport, revenir au tableau de bord ne doit jamais demander de remonter. */
+.tabs {
+  display: flex; gap: .3rem; padding: .5rem .1rem;
+  position: sticky; top: 0; z-index: 4;
+  background: var(--bg);
+  margin: 0 -.75rem .75rem; padding-left: .75rem; padding-right: .75rem;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--edge);
+}
+.tabs button {
+  appearance: none; border: 0; background: transparent; color: var(--ink-dim);
+  font: inherit; font-size: .84rem; font-weight: 560; padding: .5rem .75rem;
+  cursor: pointer; white-space: nowrap; border-radius: 10px 10px 0 0;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.tabs button.on {
+  color: var(--ink); font-weight: 660; border-bottom-color: var(--cool);
+}
+
+/* Chaque onglet ne montre que ce qui lui appartient. `body[data-tab]` (posé
+   une fois par rendu, voir render() dans app.js) plutôt qu'un show/hide par
+   section éparpillé dans le JS -- une nouvelle section n'a qu'une ligne à
+   ajouter ici pour rejoindre le bon onglet. #chauffage et #calib ne sont même
+   pas dans cette liste : leur contenu HTML est déjà vide hors de leur onglet
+   (voir render()), donc rien à cacher en plus côté CSS. */
+body[data-tab="dashboard"] #chauffage,
+body[data-tab="dashboard"] #calib,
+body:not([data-tab="dashboard"]) #view,
+body:not([data-tab="dashboard"]) #back,
+body:not([data-tab="dashboard"]) #overview,
+body:not([data-tab="dashboard"]) #zones,
+body:not([data-tab="dashboard"]) #actions,
+body:not([data-tab="dashboard"]) .help {
+  display: none;
+}
+
 .banner {
   border: 1px solid var(--edge); border-left-width: 4px; border-radius: 12px;
   background: var(--card); padding: .65rem .8rem; margin-bottom: .75rem;

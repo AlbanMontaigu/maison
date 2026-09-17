@@ -16,6 +16,7 @@ const PLOT_W = 1000, PLOT_H = 110, STRIP_H = 14, SUN_H = 40;
 // repere sur la courbe du soleil : au-dessus, il agit sur les volets.
 const SOLAR_HIGH = 150;
 const VIEW_KEY = 'maison.view';
+const TAB_KEY = 'maison.tab';
 // Alpha of a passive action (waiting, out of occupancy) on the decision track.
 const PASSIVE_OP = .45;
 
@@ -31,6 +32,11 @@ const store = {
 };
 const VIEWS = ['yesterday', 'day', 'week'];
 let view = VIEWS.includes(store.get(VIEW_KEY)) ? store.get(VIEW_KEY) : 'day';
+// Meme logique que `view` : memorisee, pas dans le hash. Le hash reste reserve
+// a une piece (#zone=…), partageable ; l'onglet n'a pas cette pretention. Une
+// piece n'existe que sous "dashboard" -- ouvrir un lien de piece y ramene.
+const TABS = ['dashboard', 'calibration', 'rapports'];
+let tab = TABS.includes(store.get(TAB_KEY)) ? store.get(TAB_KEY) : 'dashboard';
 // « Hier » et « 7 j » sont RETROSPECTIVES : la fenetre est close. Ce qui decrit
 // l'instant present -- action en cours, temperature actuelle, anciennete des
 // appareils -- n'y a pas sa place : ce serait dire « maintenant » sur une page
@@ -1577,15 +1583,18 @@ function pacDailyHtml(days) {
     </table>`;
 }
 
-// Meme convention que calibOpen juste en dessous : replie par defaut, retenu
-// au travers des re-rendus une fois que l'utilisateur y a touche.
+// Ouverte par defaut : depuis le passage aux onglets, cette carte EST tout le
+// contenu de l'onglet "Rapports" -- la replier par defaut cacherait la seule
+// chose qu'on est venu y lire. Retenu au travers des re-rendus une fois que
+// l'utilisateur la replie lui-meme (peu utile en pratique, mais coherent avec
+// calibOpen juste en dessous, et sans cout a garder).
 let chauffOpen = null;
 
 function chauffageHtml(weeklyReport, pacDaily) {
   const report = weeklyReportHtml(weeklyReport);
   const daily = pacDailyHtml(pacDaily);
   if (!report && !daily) return '';
-  const open = chauffOpen ?? false;
+  const open = chauffOpen ?? true;
   return `<details class="chauff"${open ? ' open' : ''}>
       <summary><b class="ctitle">Chauffage & énergie</b></summary>
       ${report}
@@ -1601,7 +1610,7 @@ function bindChauffFold() {
 }
 
 // Ouvert ou replie, retenu au travers des re-rendus comme les courbes. `null` =
-// l'utilisateur n'y a pas touche : le rapport s'ouvre alors seul sur anomalie.
+// l'utilisateur n'y a pas touche : s'ouvre alors par defaut (voir calibHtml).
 let calibOpen = null;
 
 // Dernier rapport de calibration des sondes. Tout vient du rapport : pieces,
@@ -1618,7 +1627,10 @@ function calibHtml(cal, hist) {
   const v = CALIB_VERDICT[cal.verdict] || { label: esc(cal.verdict ?? 'verdict inconnu') };
   const age = typeof cal.age_s === 'number' ? since(agoS(cal.age_s))
     : cal.ts ? since(ago(cal.ts)) : 'date inconnue';
-  const open = calibOpen ?? !!v.bad;
+  // Ouverte par defaut, comme chauffOpen ci-dessus : cette carte est tout
+  // l'onglet "Calibration" depuis le passage aux onglets, pas une carte parmi
+  // d'autres qu'on ouvrirait seulement sur anomalie.
+  const open = calibOpen ?? true;
 
   const th = cal.thermostat_rdc;
   const thermo = th
@@ -1942,6 +1954,15 @@ function render() {
   frames.clear();
   const eng = payload.engine || {};
 
+  // Pilote quel bloc la CSS montre (voir .tabs / body[data-tab] dans app.css) :
+  // un seul attribut plutot qu'un show/hide par section eparpille dans ce
+  // fichier, qui devrait alors rester synchronise avec la liste des sections.
+  document.body.dataset.tab = tab;
+  for (const b of document.querySelectorAll('#tabs button')) {
+    b.classList.toggle('on', b.dataset.tab === tab);
+    b.setAttribute('aria-selected', String(b.dataset.tab === tab));
+  }
+
   for (const b of document.querySelectorAll('.seg button')) {
     b.classList.toggle('on', b.dataset.view === view);
     b.setAttribute('aria-pressed', String(b.dataset.view === view));
@@ -1986,18 +2007,24 @@ function render() {
     + (iS >= 0 ? ` · ${solarWord(oS[iS])}` : '');
   outEl.title = iS >= 0 ? `rayonnement du ciel ${Math.round(oS[iS])} W/m² (fort au-delà de ${SOLAR_HIGH})` : '';
 
-  // L'electricite est un compteur de MAISON : sur la page d'une piece elle
-  // repond a une autre question que celle qu'on est venu poser, et sa presence
-  // laisse croire qu'elle parle de cette piece-la.
-  $('banners').innerHTML = (zoneFromHash() || view !== 'day' ? '' : weatherStripHtml(payload.weather_today))
-    + (zoneFromHash() ? '' : energyHtml(payload.energy))
-    + bannerHtml(payload.house);
+  // L'absence eventuelle est un etat MAISON qui coupe tout : elle doit se voir
+  // quel que soit l'onglet ouvert, pas seulement sur le tableau de bord.
+  $('banners').innerHTML = bannerHtml(payload.house);
 
   // Une piece ouverte : on ne rend qu'elle. Un nom inconnu (zone renommee,
   // lien vieilli) retombe sur la vue d'ensemble plutot que sur une page vide.
-  const solo = zoneFromHash();
+  // N'existe que sous l'onglet tableau de bord (voir bindRoute/bindTabs).
+  const solo = tab === 'dashboard' ? zoneFromHash() : null;
   const shown = solo ? payload.zones.filter((z) => z.name === solo) : payload.zones;
   const zones = shown.length ? shown : payload.zones;
+  // L'electricite est un compteur de MAISON : sur la page d'une piece elle
+  // repond a une autre question que celle qu'on est venu poser, et sa presence
+  // laisse croire qu'elle parle de cette piece-la. CSS cache deja ce bloc hors
+  // de l'onglet tableau de bord ; la condition evite en plus de le reconstruire
+  // pour rien pendant qu'il est invisible.
+  $('overview').innerHTML = tab !== 'dashboard' ? '' :
+    (solo || view !== 'day' ? '' : weatherStripHtml(payload.weather_today))
+    + (solo ? '' : energyHtml(payload.energy));
   $('back').innerHTML = solo && shown.length
     ? '<a class="back" href="#">← toutes les pièces</a>' : '';
   // Une seule piece : la grille repasse a une colonne. Sans ca, la carte reste
@@ -2006,9 +2033,10 @@ function render() {
   // piece. La classe est posee ici plutot qu'avec `:has()` en CSS : le solo est
   // deja calcule, et ca ne depend pas du support du selecteur.
   $('zones').classList.toggle('solo', !!(solo && shown.length));
-  // Rapport MAISON, comme l'electricite : absent de la page d'une piece.
-  $('chauffage').innerHTML = solo && shown.length ? '' : chauffageHtml(payload.weekly_report, payload.pac_daily);
-  $('calib').innerHTML = solo && shown.length ? '' : calibHtml(payload.calibration, payload.calibration_history);
+  // Rapports MAISON, chacun sur son propre onglet desormais : plus de partage
+  // avec la page d'une piece (qui n'existe que sous "dashboard").
+  $('chauffage').innerHTML = tab !== 'rapports' ? '' : chauffageHtml(payload.weekly_report, payload.pac_daily);
+  $('calib').innerHTML = tab !== 'calibration' ? '' : calibHtml(payload.calibration, payload.calibration_history);
 
   if (v.empty) {
     $('zones').innerHTML = '<p class="empty">Pas encore de journée complète avant aujourd\'hui.</p>';
@@ -2289,6 +2317,13 @@ function helpHtml() {
 // lien colle dans la barre d'adresse passent tous par le meme chemin.
 function bindRoute() {
   window.addEventListener('hashchange', () => {
+    // Une piece n'existe que sous l'onglet tableau de bord : un lien de piece
+    // ouvert depuis un autre onglet (ou colle dans la barre d'adresse) doit y
+    // ramener, sinon la carte se rendrait dans un onglet qui la cache.
+    if (zoneFromHash() && tab !== 'dashboard') {
+      tab = 'dashboard';
+      store.set(TAB_KEY, tab);
+    }
     if (payload) render();
     window.scrollTo(0, 0);
   });
@@ -2301,6 +2336,17 @@ function bindView() {
     view = b.dataset.view;
     store.set(VIEW_KEY, view);
     if (payload) render();
+  });
+}
+
+function bindTabs() {
+  $('tabs').addEventListener('click', (ev) => {
+    const b = ev.target.closest('button[data-tab]');
+    if (!b || b.dataset.tab === tab) return;
+    tab = b.dataset.tab;
+    store.set(TAB_KEY, tab);
+    if (payload) render();
+    window.scrollTo(0, 0);
   });
 }
 
@@ -3218,7 +3264,16 @@ fetch('build.txt').then((r) => r.ok ? r.text() : '').then((v) => {
   if (v) document.title = 'Maison · Confort';
 }).catch(() => {});
 
+// Meme correction qu'au changement de hash (voir bindRoute) : un lien de piece
+// ouvert au chargement alors que l'onglet memorise etait "calibration" ou
+// "rapports" doit ramener a "dashboard", ou la carte se rendrait cachee.
+if (zoneFromHash() && tab !== 'dashboard') {
+  tab = 'dashboard';
+  store.set(TAB_KEY, tab);
+}
+
 bindView();
+bindTabs();
 bindRoute();
 bindTip();
 bindGraphFold();
