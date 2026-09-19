@@ -94,8 +94,12 @@ body {
 .pill {
   font-size: .78rem; padding: .25rem .6rem; border-radius: 999px;
   background: var(--card); border: 1px solid var(--edge);
-  color: var(--ink-dim); white-space: nowrap;
+  color: var(--ink-dim); white-space: nowrap; max-width: 100%;
 }
+/* Le badge de pilotage porte une PHRASE ("piloté par le moteur · dernière
+   décision il y a 2 min"), pas une étiquette : lui seul doit pouvoir se
+   replier sur deux lignes. Les autres pilules restent insécables. */
+#pilotage { white-space: normal; }
 .pill-out { color: var(--ink); }
 .pill.stale { background: #fdecea; border-color: #f3c4bd; color: #a5281a; font-weight: 560; }
 .pill.fresh { background: #e7f4ed; border-color: #b9dfcb; color: var(--ok); }
