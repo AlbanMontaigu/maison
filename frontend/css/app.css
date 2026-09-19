@@ -199,10 +199,10 @@ body {
   font-size: .76rem; color: var(--ink-dim);
   border-top: 1px dashed var(--edge); padding-top: .5rem;
 }
-.energy .e { display: flex; flex-direction: column; line-height: 1.25; }
-.energy .e i { font-style: normal; font-size: .7rem; color: var(--ink-dim); }
-.energy .e b { font-size: 1.05rem; font-weight: 620; font-variant-numeric: tabular-nums; }
-.energy .e em { font-style: normal; font-size: .7rem; color: var(--ink-dim); }
+.energy .e, .chauff .e { display: flex; flex-direction: column; line-height: 1.25; }
+.energy .e i, .chauff .e i { font-style: normal; font-size: .7rem; color: var(--ink-dim); }
+.energy .e b, .chauff .e b { font-size: 1.05rem; font-weight: 620; font-variant-numeric: tabular-nums; }
+.energy .e em, .chauff .e em { font-style: normal; font-size: .7rem; color: var(--ink-dim); }
 .energy .esub { flex-basis: 100%; font-size: .76rem; color: var(--ink-dim); }
 .energy.stale, .energy.off { background: #fdf0e6; border-color: #f0d3b6; }
 .energy.off .esub { flex-basis: auto; }
@@ -772,6 +772,50 @@ button.act[aria-current] {
   background: var(--card); border: 1px solid var(--edge); border-radius: 14px;
   padding: .85rem; margin-top: .75rem; margin-bottom: .75rem; font-size: .84rem;
 }
+/* Sous-onglets : trois rapports à l'intérieur de l'onglet Rapports (voir
+   subTabsHtml dans app.js). Soulignés, pas en pilules -- .hnav juste en
+   dessous EST en pilules et choisit une semaine DANS le rapport ouvert ;
+   deux bandes de pilules superposées se lisaient comme un seul choix. */
+.subtabs {
+  display: flex; gap: .1rem; overflow-x: auto; overflow-y: hidden;
+  margin: -.15rem 0 .85rem; border-bottom: 1px solid var(--edge);
+}
+.subtabs button {
+  appearance: none; border: 0; background: transparent; color: var(--ink-dim);
+  font: inherit; font-size: .82rem; font-weight: 560; padding: .4rem .7rem;
+  cursor: pointer; white-space: nowrap; flex: none;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.subtabs button.on { color: var(--ink); font-weight: 660; border-bottom-color: var(--ink); }
+/* Pâli, pas masqué : un onglet qui disparaîtrait le temps qu'un rapport
+   hebdo arrive se lirait comme une panne. */
+.subtabs button.empty { opacity: .45; }
+
+/* Titre de rapport : le sous-onglet porte déjà le sujet, ce titre porte le
+   détail (quel rapport, de quand). */
+.rhead {
+  margin: 0 0 .5rem; font-size: .88rem; font-weight: 660;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: .45rem;
+}
+.rhead-age { font-size: .74rem; font-weight: 500; color: var(--ink-dim); }
+/* Un titre qui suit un graphique a besoin de respirer : collé, il se lisait
+   comme la légende de l'axe du dessus. */
+.chauff > * + .rhead { margin-top: 1.1rem; }
+.rsub { margin: .8rem 0 .2rem; font-size: .78rem; font-weight: 620; }
+.rnote {
+  margin: 0 0 .7rem; padding: .45rem .6rem; font-size: .78rem;
+  color: var(--ink-dim); background: var(--card-2);
+  border-left: 3px solid var(--neutral); border-radius: 0 8px 8px 0;
+}
+
+/* Les sections d'un rapport hebdo sont indépendantes les unes des autres
+   (conso, PAC, pièces, analyse) : en colonne unique elles faisaient un mur
+   de 2000 px sur large écran, alors qu'aucune ne se lit après l'autre. */
+.rgrid { display: grid; gap: .6rem; }
+@media (min-width: 760px) { .rgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.rgrid > .rsec { margin: 0; }
+.rgrid > .rplain { margin: 0; grid-column: 1 / -1; }
+
 .wr-age { margin: 0 0 .6rem; font-size: .76rem; color: var(--ink-dim); }
 .rplain { margin: 0 0 .6rem; color: var(--ink-dim); }
 .rsec { margin: 0 0 .6rem; padding: .55rem .65rem; background: var(--card-2); border-radius: 10px; }
@@ -785,9 +829,12 @@ button.act[aria-current] {
 /* Graphique a barres du chauffage estime par jour -- remplace l'ancien
    tableau. Hauteur des barres en flex (pas de SVG : 14 barres CSS suffisent
    et restent lisibles a toute largeur, meme sur telephone). */
-.pac-chart { display: flex; align-items: flex-end; gap: .3rem; height: 6.5rem; overflow-x: auto; }
+.pac-chart {
+  display: flex; align-items: flex-end; gap: .22rem; height: 6.5rem; overflow-x: auto;
+  padding-inline: .6rem; margin-inline: -.6rem;
+}
 .pac-bar {
-  flex: 1 0 2rem; min-width: 2rem; height: 100%;
+  flex: 1 1 0; min-width: 1.1rem; height: 100%;
   display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
   gap: .15rem;
 }
@@ -801,7 +848,14 @@ button.act[aria-current] {
 .pac-fill.tone-drift { background: var(--warm); }
 .pac-fill.tone-bad { background: var(--alert); }
 .pac-fill.tone-unknown { background: var(--neutral); opacity: .6; }
-.pac-day { font-size: .64rem; color: var(--ink-dim); }
+.pac-day { font-size: .64rem; color: var(--ink-dim); white-space: nowrap; }
+@media (max-width: 560px) {
+  .pac-day { font-size: .58rem; }
+  .pac-bar:nth-child(even) .pac-day { visibility: hidden; }
+}
+/* Hors du cadre fixe de l'efficacité (0,4-1,4) : le chiffre reste, la barre
+   ne prétend plus à une hauteur. */
+.pac-bar.out .pac-val { opacity: .6; font-style: italic; }
 .tip .tip-bad { color: #a5281a; }
 .tip .tip-note {
   margin: .1rem 0 0; padding-left: 1rem; max-width: 17rem;

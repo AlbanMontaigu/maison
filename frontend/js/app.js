@@ -1742,7 +1742,7 @@ function thermalRoomGridHtml(rooms, thresholds, mode) {
         const arrow = r.inertia_dT_per_day > 0.2 ? '↑' : r.inertia_dT_per_day < -0.2 ? '↓' : '→';
         return `<div class="cal-card cal-${tone}">
             <b class="cal-card-room">${esc(r.room ?? '?')}</b>
-            <span class="cal-card-delta">${typeof r.eta === 'number' ? r.eta.toFixed(2) : '—'}${r.eta_reliable === false ? ' ⏸️' : ''}</span>
+            <span class="cal-card-delta">${r.eta_reliable === false || typeof r.eta !== 'number' ? '—' : r.eta.toFixed(2)}</span>
             <span class="cal-card-sub">${deg1(r.t_measured)} · csg ${deg1(r.t_setpoint)} ${arrow}</span>
             <span class="cal-card-status">${ETA_TONE_LABEL[tone]}</span>
           </div>`;
@@ -1756,13 +1756,15 @@ function thermalRoomGridHtml(rooms, thresholds, mode) {
 // a un "parfait" absolu (1.0), contrairement au kWh qui n'en a pas -- un max
 // glissant aurait donne des hauteurs differentes a deux jours identiques.
 function thermalDailyHtml(days, thresholds, mode) {
-  const rows = (Array.isArray(days) ? days : []).filter((d) => typeof d.global_eta === 'number');
+  const rows = (Array.isArray(days) ? days : []).filter((d) => typeof d.global_eta === 'number').slice(-14);
   if (!rows.length) return '';
   const bars = rows.map((d) => {
-    const tone = etaTone(d.global_eta, thresholds, mode, true);
-    const h = Math.max(4, Math.min(100, Math.round(((d.global_eta - 0.4) / (1.4 - 0.4)) * 100)));
-    return `<div class="pac-bar" title="${esc(frDate(d.date))} · η ${d.global_eta.toFixed(2)}">
-        <span class="pac-val">${d.global_eta.toFixed(2)}</span>
+    const out = d.global_eta < 0.4 || d.global_eta > 1.4;
+    const tone = out ? 'unknown' : etaTone(d.global_eta, thresholds, mode, true);
+    const h = out ? 4 : Math.max(4, Math.round(((d.global_eta - 0.4) / (1.4 - 0.4)) * 100));
+    const detail = `${frDate(d.date)} · η ${d.global_eta.toFixed(2)}${out ? ' · hors cadre (0,4–1,4)' : ''}`;
+    return `<div class="pac-bar${out ? ' out' : ''}" title="${esc(detail)}">
+        <span class="pac-val">${out ? (d.global_eta > 1.4 ? '↑' : '↓') : d.global_eta.toFixed(2)}</span>
         <span class="pac-fill tone-${tone}" style="height:${h}%"></span>
         <span class="pac-day">${esc(frDate(d.date))}</span>
       </div>`;
@@ -1779,10 +1781,15 @@ function thermalEfficiencyHtml(eff, daily) {
   const thresholds = eff && eff.thresholds;
   const age = eff && (typeof eff.age_s === 'number' ? since(agoS(eff.age_s))
     : eff.generated_at ? since(ago(eff.generated_at)) : 'date inconnue');
-  const globalLine = eff && typeof eff.global_eta === 'number'
+  const roomList = (eff && Array.isArray(eff.rooms)) ? eff.rooms : [];
+  const anyReliable = roomList.some((r) => r.eta_reliable !== false);
+  const globalLine = eff && anyReliable && typeof eff.global_eta === 'number'
     ? `η global ${eff.global_eta.toFixed(2)}`
       + (typeof eff.yesterday_eta === 'number' ? ` · hier ${eff.yesterday_eta.toFixed(2)}` : '')
       + (typeof eff.week_avg_eta === 'number' ? ` · moy. 7 j ${eff.week_avg_eta.toFixed(2)}` : '')
+    : '';
+  const unreliableNote = eff && !anyReliable && roomList.length
+    ? 'η non exploitable sur ce relevé — le rapport marque chaque pièce « non fiable ».'
     : '';
   const lists = eff ? [
     ['Anomalies', eff.anomalies],
@@ -1791,17 +1798,16 @@ function thermalEfficiencyHtml(eff, daily) {
     ['Isolation', eff.isolation_issues],
   ].filter(([, arr]) => Array.isArray(arr) && arr.length) : [];
 
-  return `<div class="rsec">
-      <div class="cal-head">
-        <b class="rsec-h">Efficacité thermique</b>
+  return `<div class="cal-head">
+        <h3 class="rhead">Efficacité thermique</h3>
         ${eff ? `<span class="cal-verdict${eff.verdict === 'anomaly' ? ' bad' : ''}">${eff.verdict === 'anomaly' ? '⚠️ anomalie' : '✓ nominal'}</span>` : ''}
         ${age ? `<span class="cal-age">${esc(age)}</span>` : ''}
       </div>
       ${globalLine ? `<p class="wr-age">${esc(globalLine)} · mode ${mode === 'cooling' ? 'refroidissement' : 'chauffage'}</p>` : ''}
+      ${unreliableNote ? `<p class="rnote">${esc(unreliableNote)}</p>` : ''}
       ${eff ? thermalRoomGridHtml(eff.rooms, thresholds, mode) : ''}
-      ${lists.map(([title, arr]) => `<h4>${esc(title)}</h4><ul class="cal-list">${strList(arr)}</ul>`).join('')}
-      ${thermalDailyHtml(daily, thresholds, mode)}
-    </div>`;
+      ${lists.map(([title, arr]) => `<h4 class="rsub">${esc(title)}</h4><ul class="cal-list">${strList(arr)}</ul>`).join('')}
+      ${thermalDailyHtml(daily, thresholds, mode)}`;
 }
 
 // Meme rapport hebdo LLM, deux sources (energie / confort-regulation) --
@@ -1812,7 +1818,7 @@ let confortWeek = null;
 function weeklyReportSectionHtml(reports, selectedWeek, targetId, heading, emptyLabel) {
   const list = Array.isArray(reports) ? reports : [];
   if (!list.length) {
-    return `<div class="rsec"><b class="rsec-h">${esc(heading)}</b><p class="cal-fine">${esc(emptyLabel)}</p></div>`;
+    return `<h3 class="rhead">${esc(heading)}</h3><p class="cal-fine">${esc(emptyLabel)}</p>`;
   }
   const nav = historyNavHtml(
     list.map((r) => ({ id: r.week, label: esc((r.week || '').replace(/^\d+-W/, 'S')) })),
@@ -1820,12 +1826,35 @@ function weeklyReportSectionHtml(reports, selectedWeek, targetId, heading, empty
   const selected = list.find((r) => r.week === selectedWeek) || list[list.length - 1];
   const age = typeof selected.age_s === 'number' ? since(agoS(selected.age_s))
     : selected.generated_at ? since(ago(selected.generated_at)) : 'date inconnue';
-  return `<div class="rsec">
-      <b class="rsec-h">${esc(heading)}</b>
+  return `<h3 class="rhead">${esc(heading)} <span class="rhead-age">${esc(age)}</span></h3>
       ${nav}
-      <p class="wr-age">Rapport ${esc(age)}</p>
-      ${reportSectionsHtml(selected.text || '')}
-    </div>`;
+      <div class="rgrid">${reportSectionsHtml(selected.text || '')}</div>`;
+}
+
+/* ── Sous-onglets de Rapports ───────────────────────────────────
+   Trois rapports qui ne repondent pas a la meme question -- ce que ça coûte,
+   comment la régulation s'est comportée, ce que la maison rend -- et qui
+   n'ont aucune raison de se lire a la suite. Empilés, ils faisaient une page
+   de 3000 px sur téléphone où rien ne ressortait. Un seul a l'écran.
+
+   Le choix PERSISTE (contrairement a chauffWeek/calibDay juste a côté) :
+   c'est une section, pas un curseur d'historique -- meme raison que TAB_KEY,
+   on rouvre la ou on était. */
+const RSUBS = ['energie', 'confort', 'efficacite'];
+const RSUB_KEY = 'maison.rapports.sub';
+const RSUB_LABEL = { energie: '⚡ Énergie', confort: '🏠 Confort', efficacite: '🎯 Efficacité' };
+let rapportsSub = RSUBS.includes(store.get(RSUB_KEY)) ? store.get(RSUB_KEY) : 'energie';
+
+// `has` : ce qui a de la matière. Un sous-onglet vide reste CLIQUABLE et
+// annonce lui-meme son absence de rapport -- le gommer aurait fait disparaître
+// puis réapparaître un onglet au fil des semaines, ce qui se lit comme une
+// panne. Il est seulement pâli.
+function subTabsHtml(has) {
+  return `<nav class="subtabs" role="tablist" aria-label="Rapport">
+      ${RSUBS.map((k) => `<button type="button" data-sub="${k}" role="tab"
+          class="${k === rapportsSub ? 'on' : ''}${has[k] ? '' : ' empty'}"
+          aria-selected="${k === rapportsSub}">${RSUB_LABEL[k]}</button>`).join('')}
+    </nav>`;
 }
 
 function chauffageHtml(weeklyReports, comfortWeeklyReports, pacDaily, energyDaily, thermalEff, thermalDaily) {
@@ -1836,19 +1865,41 @@ function chauffageHtml(weeklyReports, comfortWeeklyReports, pacDaily, energyDail
   const thermal = thermalEfficiencyHtml(thermalEff, thermalDaily);
   if (!reports.length && !comfortReports.length && !daily && !today && !thermal) return '';
 
+  const has = {
+    energie: Boolean(today || daily || reports.length),
+    confort: Boolean(comfortReports.length),
+    efficacite: Boolean(thermal),
+  };
+
+  // Le graphique AVANT le mur de texte : sur les trois sous-onglets, ce qui
+  // se lit d'un coup d'oeil passe devant ce qui se lit ligne a ligne.
+  let body;
+  if (rapportsSub === 'confort') {
+    body = weeklyReportSectionHtml(comfortReports, confortWeek, 'confort',
+      'Confort & régulation', "Aucun rapport hebdomadaire pour l'instant.");
+  } else if (rapportsSub === 'efficacite') {
+    body = thermal || '<p class="cal-fine">Aucun rapport d\'efficacité pour l\'instant.</p>';
+  } else {
+    body = `${today}${daily}${weeklyReportSectionHtml(reports, chauffWeek, 'chauffage',
+      'Rapport hebdo', "Aucun rapport hebdomadaire pour l'instant.")}`;
+  }
+
   return `<section class="chauff">
-      ${today}
-      ${weeklyReportSectionHtml(reports, chauffWeek, 'chauffage', 'Énergie — rapport hebdo',
-        "Aucun rapport hebdomadaire pour l'instant.")}
-      ${daily}
-      ${weeklyReportSectionHtml(comfortReports, confortWeek, 'confort', 'Confort & régulation — rapport hebdo',
-        "Aucun rapport hebdomadaire pour l'instant.")}
-      ${thermal}
+      ${subTabsHtml(has)}
+      ${body}
     </section>`;
 }
 
 function bindChauffFold() {
   $('chauffage').addEventListener('click', (ev) => {
+    const sub = ev.target.closest('button[data-sub]');
+    if (sub) {
+      if (sub.dataset.sub === rapportsSub) return;
+      rapportsSub = sub.dataset.sub;
+      store.set(RSUB_KEY, rapportsSub);
+      if (payload) render();
+      return;
+    }
     const b = ev.target.closest('.hnav-item[data-id]');
     if (!b) return;
     const target = b.closest('.hnav')?.dataset.target;
