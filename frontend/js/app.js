@@ -1804,26 +1804,45 @@ function thermalEfficiencyHtml(eff, daily) {
     </div>`;
 }
 
-function chauffageHtml(weeklyReports, pacDaily, energyDaily, thermalEff, thermalDaily) {
+// Meme rapport hebdo LLM, deux sources (energie / confort-regulation) --
+// meme nav + meme parsing, un state de semaine choisie et un id de nav
+// chacun pour ne pas se marcher dessus dans le meme onglet.
+let confortWeek = null;
+
+function weeklyReportSectionHtml(reports, selectedWeek, targetId, heading, emptyLabel) {
+  const list = Array.isArray(reports) ? reports : [];
+  if (!list.length) {
+    return `<div class="rsec"><b class="rsec-h">${esc(heading)}</b><p class="cal-fine">${esc(emptyLabel)}</p></div>`;
+  }
+  const nav = historyNavHtml(
+    list.map((r) => ({ id: r.week, label: esc((r.week || '').replace(/^\d+-W/, 'S')) })),
+    selectedWeek, targetId);
+  const selected = list.find((r) => r.week === selectedWeek) || list[list.length - 1];
+  const age = typeof selected.age_s === 'number' ? since(agoS(selected.age_s))
+    : selected.generated_at ? since(ago(selected.generated_at)) : 'date inconnue';
+  return `<div class="rsec">
+      <b class="rsec-h">${esc(heading)}</b>
+      ${nav}
+      <p class="wr-age">Rapport ${esc(age)}</p>
+      ${reportSectionsHtml(selected.text || '')}
+    </div>`;
+}
+
+function chauffageHtml(weeklyReports, comfortWeeklyReports, pacDaily, energyDaily, thermalEff, thermalDaily) {
   const reports = Array.isArray(weeklyReports) ? weeklyReports : [];
+  const comfortReports = Array.isArray(comfortWeeklyReports) ? comfortWeeklyReports : [];
   const daily = pacDailyHtml(pacDaily);
   const today = energyDailyHtml(energyDaily);
   const thermal = thermalEfficiencyHtml(thermalEff, thermalDaily);
-  if (!reports.length && !daily && !today && !thermal) return '';
-
-  const nav = historyNavHtml(
-    reports.map((r) => ({ id: r.week, label: esc((r.week || '').replace(/^\d+-W/, 'S')) })),
-    chauffWeek, 'chauffage');
-  const selected = reports.find((r) => r.week === chauffWeek) || reports[reports.length - 1];
-  const age = selected && (typeof selected.age_s === 'number' ? since(agoS(selected.age_s))
-    : selected.generated_at ? since(ago(selected.generated_at)) : 'date inconnue');
+  if (!reports.length && !comfortReports.length && !daily && !today && !thermal) return '';
 
   return `<section class="chauff">
       ${today}
-      ${nav}
-      ${selected ? `<p class="wr-age">Rapport ${esc(age)}</p>${reportSectionsHtml(selected.text || '')}`
-        : '<p class="cal-fine">Aucun rapport hebdomadaire pour l\'instant.</p>'}
+      ${weeklyReportSectionHtml(reports, chauffWeek, 'chauffage', 'Énergie — rapport hebdo',
+        "Aucun rapport hebdomadaire pour l'instant.")}
       ${daily}
+      ${weeklyReportSectionHtml(comfortReports, confortWeek, 'confort', 'Confort & régulation — rapport hebdo',
+        "Aucun rapport hebdomadaire pour l'instant.")}
       ${thermal}
     </section>`;
 }
@@ -1832,7 +1851,9 @@ function bindChauffFold() {
   $('chauffage').addEventListener('click', (ev) => {
     const b = ev.target.closest('.hnav-item[data-id]');
     if (!b) return;
-    chauffWeek = b.dataset.id;
+    const target = b.closest('.hnav')?.dataset.target;
+    if (target === 'confort') confortWeek = b.dataset.id;
+    else if (target === 'chauffage') chauffWeek = b.dataset.id;
     if (payload) render();
   });
 }
@@ -2289,8 +2310,8 @@ function render() {
   // Rapports MAISON, chacun sur son propre onglet desormais : plus de partage
   // avec la page d'une piece (qui n'existe que sous "dashboard").
   $('chauffage').innerHTML = tab !== 'rapports' ? '' : chauffageHtml(
-    payload.weekly_reports, payload.pac_daily, payload.energy_daily_report,
-    payload.thermal_efficiency, payload.thermal_efficiency_daily);
+    payload.weekly_reports, payload.comfort_weekly_reports, payload.pac_daily,
+    payload.energy_daily_report, payload.thermal_efficiency, payload.thermal_efficiency_daily);
   $('calib').innerHTML = tab !== 'calibration' ? '' : calibHtml(payload.calibration, payload.calibration_daily);
 
   if (v.empty) {
