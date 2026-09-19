@@ -1962,17 +1962,27 @@ function normalizeRooms(rooms) {
 // couleur porte le statut (vert/orange/rouge) ; le detail sonde/vanne ne
 // s'affiche que s'il existe (absent sur un jour passe, l'historique ne le
 // garde pas).
-function roomGridHtml(rooms) {
+const WORST_SHOW_MIN = 0.2;
+
+function roomGridHtml(rooms, worstBy) {
   const list = normalizeRooms(rooms);
   if (!list.length) return '<p class="cal-fine">Aucune pièce dans ce rapport.</p>';
+  const worstOf = (room) => (worstBy && worstBy[room]) || null;
   return `<div class="cal-grid">
       ${list.map((r) => {
         const st = CALIB_STATUS[r.status] || { label: r.status ?? '—' };
         const act = r.action == null ? '' : (CALIB_ACTION[r.action] || r.action);
         const tone = st.tone || 'ok';
+        const w = worstOf(r.room);
+        const showWorst = w && typeof w.worst_delta === 'number' && typeof r.delta === 'number'
+          && Math.abs(w.worst_delta) - Math.abs(r.delta) >= WORST_SHOW_MIN;
+        const wAt = showWorst && w.worst_ts
+          ? hhmm(Math.floor(new Date(w.worst_ts).getTime() / 1000)) : null;
         return `<div class="cal-card cal-${tone}">
             <b class="cal-card-room">${esc(r.room ?? r.short ?? '?')}</b>
             <span class="cal-card-delta">${signedDeg(r.delta)}</span>
+            ${showWorst
+              ? `<span class="cal-card-worst">jusqu'à ${signedDeg(w.worst_delta)}${wAt ? ` à ${esc(wAt)}` : ''}</span>` : ''}
             ${r.sb != null || r.valve != null
               ? `<span class="cal-card-sub">${deg1(r.sb)} · vanne ${deg1(r.valve)}</span>` : ''}
             <span class="cal-card-status">${esc(st.label)}${act ? ` · ${esc(act)}` : ''}</span>
@@ -2050,7 +2060,7 @@ function calibHtml(cal, daily) {
       </div>
       ${anomalies ? `<ul class="cal-list cal-anom">${anomalies}</ul>` : ''}
       ${thermo}
-      ${rooms ? roomGridHtml(rooms) : '<p class="cal-fine">Aucune donnée pour ce jour.</p>'}
+      ${rooms ? roomGridHtml(rooms, dayEntry ? dayEntry.rooms : null) : '<p class="cal-fine">Aucune donnée pour ce jour.</p>'}
       ${corrections ? `<h4>Recalages appliqués</h4><ul class="cal-list">${corrections}</ul>` : ''}
       ${skipped ? `<h4>Non recalées</h4><ul class="cal-list">${skipped}</ul>` : ''}
       ${!isToday && dayEntry ? `<p class="cal-fine">Le contrôle a lieu environ toutes les deux heures. Cette grille montre

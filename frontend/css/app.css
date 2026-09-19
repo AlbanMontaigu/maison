@@ -763,6 +763,7 @@ button.act[aria-current] {
 .cal-card-room { font-size: .8rem; font-weight: 620; }
 .cal-card-delta { font-size: 1.05rem; font-weight: 660; font-variant-numeric: tabular-nums; }
 .cal-card-sub, .cal-card-status { font-size: .7rem; color: var(--ink-dim); }
+.cal-card-worst { font-size: .7rem; color: var(--ink-dim); margin-top: -.1rem; }
 
 /* Trace de calibration d'une piece, dans sa propre carte (voir CAL_ROW_H dans
    app.js) : le viewBox vaut les pixels, les reperes y gardent leurs proportions. */
