@@ -1631,38 +1631,66 @@ function reportSectionsHtml(text) {
   }).join('');
 }
 
-// Repartition chauffage/domestique par jour, en graphique a barres plutot
-// qu'en tableau : le tableau precedent listait les memes 14 chiffres sans
-// qu'aucun ne saute aux yeux. La hauteur porte le kWh estime ; le detail
-// (heures suivies, cout, dehors) reste lisible au survol/tap (`title`) plutot
-// que de charger l'axe. `data_points` est le nombre d'heures REELLEMENT
-// collectees ce jour-la (24 un jour complet, moins pour aujourd'hui) : un
-// jour partiel est visuellement plus pale, pas caché — une barre absente
-// aurait été lue comme "aucun chauffage", pas comme "pas encore mesuré".
+// Consommation par jour, en barres empilees : le talon de la maison en bas,
+// ce qui passe au-dessus en haut. La hauteur totale porte les kWh MESURES,
+// pris sur la courbe de charge Enedis (48 demi-heures par jour).
+//
+// Ce graphique disait "Chauffage par jour" jusqu'au 19/09/2026 et affichait
+// un nombre sans rapport : cote maison, la base etait estimee a partir de la
+// VALEUR COURANTE du Linky, qui ne change qu'une ou deux fois par jour. Sur
+// les 14 jours precedents, le chauffage n'avait tourne aucune heure sur 13
+// jours, et le graphique annoncait pourtant jusqu'a 11,8 kWh de "chauffage".
+// Le correctif est cote collecteur (jeedom-energy-context.py) ; ce qui change
+// ici est le NOM de ce qu'on montre : la part au-dessus du talon n'est pas du
+// chauffage, c'est tout ce qui tourne -- clim, cuisson, lave-linge. Le seul
+// champ qui reponde a "la maison a-t-elle chauffe" est `pac_on_hours`, qui
+// reste dans le detail au survol.
+//
+// `data_points` est le nombre de demi-heures connues (48 un jour complet).
+// Enedis publiant en differe, le jour en cours n'en a presque aucune : sa
+// barre est palie et son detail le dit, plutot que de le laisser passer pour
+// une journee mesuree qui se serait effondree.
 function pacDailyHtml(days) {
-  const rows = (Array.isArray(days) ? days : []).filter((d) => d && d.data_points);
+  const rows = (Array.isArray(days) ? days : [])
+    .filter((d) => d && d.data_points && typeof d.conso_jour_kwh === 'number');
   if (!rows.length) return '';
-  const max = Math.max(1, ...rows.map((d) => d.est_chauffage_kwh || 0));
+  const max = Math.max(1, ...rows.map((d) => d.conso_jour_kwh || 0));
   const bars = rows.map((d) => {
-    const kwhVal = typeof d.est_chauffage_kwh === 'number' ? d.est_chauffage_kwh : null;
-    const h = kwhVal != null ? Math.max(2, Math.round((kwhVal / max) * 100)) : 2;
-    const partial = d.data_points < 20;
+    const total = d.conso_jour_kwh;
+    const base = typeof d.est_base_kwh === 'number' ? Math.min(d.est_base_kwh, total) : null;
+    const surplus = base != null ? Math.max(0, total - base) : null;
+    const h = Math.max(2, Math.round((total / max) * 100));
+    const partial = d.complete === false;
     const detail = [
       frDate(d.date),
-      kwhVal != null ? `${kwh(kwhVal)} chauffage` : 'chauffage non estimé',
-      typeof d.est_chauffage_eur === 'number' ? eur(d.est_chauffage_eur) : null,
-      d.pac_on_hours != null ? `PAC active ${d.pac_on_hours} h / ${d.data_points} h suivies` : null,
+      `${kwh(total)} au total`,
+      typeof d.cout_jour_eur === 'number' ? eur(d.cout_jour_eur) : null,
+      base != null ? `talon ${kwh(base)} · au-dessus ${kwh(surplus)}` : 'talon non estimé',
+      d.pac_on_hours != null ? `chauffage actif ${d.pac_on_hours} h` : null,
       typeof d.outdoor_avg === 'number' ? `dehors ${deg1(d.outdoor_avg)} en moyenne` : null,
+      partial ? `jour partiel — ${d.data_points} demi-heures publiées sur 48` : null,
     ].filter(Boolean).join(' · ');
+    // Les deux segments sont un pourcentage DU TOTAL, la pile entiere un
+    // pourcentage du plus gros jour : deux echelles imbriquees, sinon un jour
+    // creux et un jour charge auraient le meme talon a l'ecran.
+    const segs = base != null
+      ? `<span class="pac-seg seg-over" style="height:${Math.round((surplus / total) * 100)}%"></span>
+         <span class="pac-seg seg-base" style="height:${Math.round((base / total) * 100)}%"></span>`
+      : '<span class="pac-seg seg-over" style="height:100%"></span>';
     return `<div class="pac-bar${partial ? ' partial' : ''}" title="${esc(detail)}">
-        <span class="pac-val">${kwhVal != null ? Math.round(kwhVal) : '—'}</span>
-        <span class="pac-fill" style="height:${h}%"></span>
+        <span class="pac-val">${Math.round(total)}</span>
+        <span class="pac-plot"><span class="pac-stack" style="height:${h}%">${segs}</span></span>
         <span class="pac-day">${esc(frDate(d.date))}</span>
       </div>`;
   }).join('');
   return `<div class="pac-chart-wrap">
-      <p class="rsec-h2">Chauffage par jour <span class="rsec-unit">(kWh estimés)</span></p>
+      <p class="rsec-h2">Consommation par jour <span class="rsec-unit">(kWh mesurés)</span></p>
       <div class="pac-chart">${bars}</div>
+      <p class="pac-legend">
+        <span class="lg lg-base"></span>talon de la maison
+        <span class="lg lg-over"></span>au-dessus du talon
+        <span class="pac-legend-note">clim, cuisson, chauffage… — le détail au survol</span>
+      </p>
     </div>`;
 }
 
@@ -1676,7 +1704,7 @@ function energyDailyHtml(d) {
   const cell = (label, val) => (val ? `<span class="e"><i>${esc(label)}</i><b>${esc(val)}</b></span>` : '');
   const cells = [
     typeof d.conso_jour_kwh === 'number'
-      ? `<span class="e"><i>Aujourd'hui</i>${typeof d.cout_jour_eur === 'number' ? `<b>${eur(d.cout_jour_eur)}</b>` : ''}<em>${kwh(d.conso_jour_kwh)}</em></span>`
+      ? `<span class="e"><i>ce jour-là</i>${typeof d.cout_jour_eur === 'number' ? `<b>${eur(d.cout_jour_eur)}</b>` : ''}<em>${kwh(d.conso_jour_kwh)}</em></span>`
       : '',
     cell('vs hier', pct(d.vs_yesterday_pct)),
     cell('vs S-1', pct(d.vs_last_week_pct)),
@@ -1702,8 +1730,10 @@ function energyDailyHtml(d) {
     .map((r) => esc(r.room) + (r.valve_percent != null ? ` (${r.valve_percent} %)` : '')).join(', ');
   if (rooms) lines.push(`<p class="rplain">🚪 Pièces en demande : ${rooms}</p>`);
 
+  const age = typeof d.age_s === 'number' ? since(agoS(d.age_s))
+    : d.generated_at ? since(ago(d.generated_at)) : null;
   return `<div class="rsec">
-      <b class="rsec-h">Aujourd'hui</b>
+      <b class="rsec-h">Relevé du soir${age ? ` <span class="rhead-age">${esc(age)}</span>` : ''}</b>
       ${cells ? `<div class="erow ostats">${cells}</div>` : ''}
       ${lines.join('')}
     </div>`;
@@ -1765,7 +1795,7 @@ function thermalDailyHtml(days, thresholds, mode) {
     const detail = `${frDate(d.date)} · η ${d.global_eta.toFixed(2)}${out ? ' · hors cadre (0,4–1,4)' : ''}`;
     return `<div class="pac-bar${out ? ' out' : ''}" title="${esc(detail)}">
         <span class="pac-val">${out ? (d.global_eta > 1.4 ? '↑' : '↓') : d.global_eta.toFixed(2)}</span>
-        <span class="pac-fill tone-${tone}" style="height:${h}%"></span>
+        <span class="pac-plot"><span class="pac-fill tone-${tone}" style="height:${h}%"></span></span>
         <span class="pac-day">${esc(frDate(d.date))}</span>
       </div>`;
   }).join('');

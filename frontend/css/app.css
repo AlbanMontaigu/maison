@@ -839,8 +839,30 @@ button.act[aria-current] {
   gap: .15rem;
 }
 .pac-val { font-size: .68rem; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.pac-plot { position: relative; flex: 1 1 auto; width: 100%; min-height: 0; }
+.pac-plot > * { position: absolute; left: 0; right: 0; bottom: 0; }
 .pac-fill { width: 100%; border-radius: 4px 4px 0 0; background: var(--warm); min-height: 2px; }
-.pac-bar.partial .pac-fill { opacity: .45; }
+.pac-bar.partial .pac-fill, .pac-bar.partial .pac-stack { opacity: .45; }
+/* Pile talon + au-dessus. `overflow: hidden` porte l'arrondi une seule fois,
+   en haut de la pile : arrondir chaque segment aurait dessine deux barres
+   posees l'une sur l'autre au lieu d'une barre en deux parts. */
+.pac-stack {
+  width: 100%; min-height: 2px; display: flex; flex-direction: column;
+  border-radius: 4px 4px 0 0; overflow: hidden;
+}
+.pac-seg { display: block; width: 100%; }
+.seg-over { background: var(--warm); }
+/* Le talon est un fond, pas un resultat : il ne doit pas attirer l'oeil plus
+   que la part qui, elle, varie avec ce qu'on fait dans la maison. */
+.seg-base { background: var(--neutral); opacity: .5; }
+.pac-legend {
+  margin: .45rem 0 0; font-size: .72rem; color: var(--ink-dim);
+  display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .55rem;
+}
+.lg { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.lg-base { background: var(--neutral); opacity: .5; }
+.lg-over { background: var(--warm); }
+.pac-legend-note { flex-basis: 100%; font-size: .7rem; }
 /* Efficacité thermique réutilise .pac-bar/.pac-fill (même composant que le
    chauffage/jour) mais colore chaque barre par son propre statut plutôt que
    toujours en --warm : ok/dérive/anomalie, comme .cal-card juste au-dessus. */
