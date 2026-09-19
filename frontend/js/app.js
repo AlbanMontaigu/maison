@@ -2011,9 +2011,17 @@ function calibHtml(cal, daily) {
   const v = isToday && cal ? (CALIB_VERDICT[cal.verdict] || { label: esc(cal.verdict ?? 'verdict inconnu') })
     : dayEntry ? (CALIB_VERDICT[dayEntry.verdict] || { label: esc(dayEntry.verdict ?? 'verdict inconnu') })
     : null;
+  // Un jour passe ne montre pas la journee, il montre SON DERNIER CONTROLE
+  // (voir calibration_daily dans comfort-dashboard-export.py). Le dire, avec
+  // l'heure : « 12 contrôles ce jour-là » annonçait le nombre sans annoncer
+  // lequel des douze est a l'ecran, ce qui se lit comme une moyenne.
+  const lastAt = dayEntry && dayEntry.last_ts
+    ? hhmm(Math.floor(new Date(dayEntry.last_ts).getTime() / 1000)) : null;
   const age = isToday && cal
     ? (typeof cal.age_s === 'number' ? since(agoS(cal.age_s)) : cal.ts ? since(ago(cal.ts)) : 'date inconnue')
-    : dayEntry ? `${dayEntry.runs} contrôle${dayEntry.runs > 1 ? 's' : ''} ce jour-là` : '';
+    : dayEntry
+      ? `dernier des ${dayEntry.runs} contrôle${dayEntry.runs > 1 ? 's' : ''} du jour${lastAt ? ` · ${lastAt}` : ''}`
+      : '';
 
   const th = isToday && cal && cal.thermostat_rdc;
   const thermo = th
@@ -2045,6 +2053,12 @@ function calibHtml(cal, daily) {
       ${rooms ? roomGridHtml(rooms) : '<p class="cal-fine">Aucune donnée pour ce jour.</p>'}
       ${corrections ? `<h4>Recalages appliqués</h4><ul class="cal-list">${corrections}</ul>` : ''}
       ${skipped ? `<h4>Non recalées</h4><ul class="cal-list">${skipped}</ul>` : ''}
+      ${!isToday && dayEntry ? `<p class="cal-fine">Le contrôle a lieu environ toutes les deux heures. Cette grille montre
+        ${dayEntry.runs > 1 ? `le dernier des ${dayEntry.runs} de la journée, pas leur moyenne` : 'le seul contrôle de la journée'}.
+        ${dayEntry.anomaly_runs > 0
+          ? `${dayEntry.anomaly_runs} contrôle${dayEntry.anomaly_runs > 1 ? 's ont' : ' a'} signalé une anomalie ce jour-là — d'où le point rouge sur la date, même si le dernier était normal.`
+          : ''}
+        Les recalages appliqués et les seuils ne sont gardés que pour aujourd'hui.</p>` : ''}
       ${limits ? `<p class="cal-fine">${esc(limits)}</p>` : ''}
     </section>`;
 }
@@ -2631,6 +2645,11 @@ function helpHtml() {
     de sa ligne dérive depuis toujours ; un écart qui grandit, lui, s'aggrave.
     Les contrôles en <em>anomalie</em> traversent toutes les lignes d'un trait
     rouge.</p>
+    <p>La bande de dates ouvre les jours précédents. Un contrôle a lieu environ
+    toutes les deux heures, soit une douzaine par jour : un jour passé montre
+    <em>le dernier de la journée</em>, jamais une moyenne. Le point rouge sur
+    une date signale qu'au moins un contrôle de ce jour-là était en anomalie —
+    y compris quand le dernier, celui qui s'affiche, était normal.</p>
 
     <h3>Le reste</h3>
     <ul>
