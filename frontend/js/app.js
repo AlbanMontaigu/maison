@@ -1631,8 +1631,9 @@ function reportSectionsHtml(text) {
   }).join('');
 }
 
-// Consommation par jour, en barres empilees : le talon de la maison en bas,
-// ce qui passe au-dessus en haut. La hauteur totale porte les kWh MESURES,
+// Consommation par jour, en barres empilees : ce que la maison consomme en
+// permanence en bas, ce qui passe au-dessus en haut. La hauteur totale porte
+// les kWh MESURES,
 // pris sur la courbe de charge Enedis (48 demi-heures par jour).
 //
 // Ce graphique disait "Chauffage par jour" jusqu'au 19/09/2026 et affichait
@@ -1665,7 +1666,7 @@ function pacDailyHtml(days) {
       frDate(d.date),
       `${kwh(total)} au total`,
       typeof d.cout_jour_eur === 'number' ? eur(d.cout_jour_eur) : null,
-      base != null ? `talon ${kwh(base)} · au-dessus ${kwh(surplus)}` : 'talon non estimé',
+      base != null ? `en permanence ${kwh(base)} · en plus ${kwh(surplus)}` : 'répartition non estimée',
       d.pac_on_hours != null ? `chauffage actif ${d.pac_on_hours} h` : null,
       typeof d.outdoor_avg === 'number' ? `dehors ${deg1(d.outdoor_avg)} en moyenne` : null,
       partial ? `jour partiel — ${d.data_points} demi-heures publiées sur 48` : null,
@@ -1687,9 +1688,8 @@ function pacDailyHtml(days) {
       <p class="rsec-h2">Consommation par jour <span class="rsec-unit">(kWh mesurés)</span></p>
       <div class="pac-chart">${bars}</div>
       <p class="pac-legend">
-        <span class="lg lg-base"></span>talon de la maison
-        <span class="lg lg-over"></span>au-dessus du talon
-        <span class="pac-legend-note">clim, cuisson, chauffage… — le détail au survol</span>
+        <span class="lg lg-base"></span>en permanence <em>(frigo, box, veilles)</em>
+        <span class="lg lg-over"></span>en plus <em>(clim, cuisson, machines…)</em>
       </p>
     </div>`;
 }

@@ -866,7 +866,7 @@ button.act[aria-current] {
 .lg { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
 .lg-base { background: var(--neutral); opacity: .5; }
 .lg-over { background: var(--warm); }
-.pac-legend-note { flex-basis: 100%; font-size: .7rem; }
+.pac-legend em { font-style: normal; font-size: .68rem; opacity: .8; }
 /* Efficacité thermique réutilise .pac-bar/.pac-fill (même composant que le
    chauffage/jour) mais colore chaque barre par son propre statut plutôt que
    toujours en --warm : ok/dérive/anomalie, comme .cal-card juste au-dessus. */
