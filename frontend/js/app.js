@@ -3295,11 +3295,13 @@ function kindBlock(kind, info, zoneName, absent) {
 
   const tooLong = "un forçage en marche se compte en heures : au-delà d'une "
     + 'journée, coupez plutôt, ou rendez la main au moteur';
-  const needDate = 'choisir une date d’abord';
   const dayOnly = 'figer un volet se déclare à la journée, pas à l’heure';
-  const whyForce = d.missing ? needDate
-    : !d.forceHours ? tooLong
-    : d.forceHours > MAX_FORCE_H ? tooLong : null;
+  // `durationSpec` rend TOUJOURS une borne : le mode « pendant » a son défaut
+  // (3 h) et le mode « jusqu'à » retombe sur aujourd'hui. Il n'y a donc pas de
+  // durée manquante à signaler -- le désarmement qui le disait ne s'est jamais
+  // affiché. Ce qui reste possible, c'est une borne TROP LOIN : un forçage en
+  // marche se compte en heures.
+  const whyForce = !d.forceHours || d.forceHours > MAX_FORCE_H ? tooLong : null;
 
   const acts = [];
   if (kind === 'velux') {
@@ -3314,14 +3316,14 @@ function kindBlock(kind, info, zoneName, absent) {
     const bodyF = { cmd: verb, value: 'off', zone: zoneName };
     if (d.until) bodyF.until = d.until;
     acts.push(actBtn(figeActive ? `Figé${fin}` : ui.fige, bodyF, zoneName,
-                     figeActive ? null : (!d.dayScale ? dayOnly : d.missing ? needDate : null),
+                     figeActive ? null : (!d.dayScale ? dayOnly : null),
                      figeActive, ui.figeIcon));
   } else {
     const offBody = d.dayScale
       ? { cmd: verb, value: 'off', zone: zoneName, ...(d.until ? { until: d.until } : {}) }
       : { cmd: verb, value: 'off', zone: zoneName, hours: d.forceHours };
     acts.push(actBtn(mode === 'off' ? `Coupé${fin}` : ui.off, offBody, zoneName,
-                     mode === 'off' ? null : (d.missing ? needDate : null), mode === 'off', ui.offIcon));
+                     null, mode === 'off', ui.offIcon));
     acts.push(actBtn(mode === 'on' ? `En marche${fin}` : ui.on,
                      { cmd: verb, value: 'on', zone: zoneName, hours: d.forceHours },
                      zoneName, mode === 'on' ? null : whyForce, mode === 'on', ui.onIcon));
@@ -3387,15 +3389,7 @@ function zonePanel(zoneName) {
   // a choisir LAQUELLE quand deux appareils sont coupes a des dates
   // differentes -- et la fenetre globale du fichier, qui servait a ca, ne
   // gouverne plus les coupures par zone.
-  // La note ne vaut que pour UN choix de durée : ne la montrer que s'il est
-  // retenu quelque part. Répétée sous chaque pièce, elle se lisait comme une
-  // mise en garde générale sur les boutons.
-  const soir = Object.keys(kinds).some((k) => durationSpec(zoneName, k).id === 'soir');
-  return pauseBlock + blocks + (soir
-    ? `<p class="act-fine">« Ce soir » s'arrête à minuit — le moteur peut
-       reprendre entre minuit et 5 h du matin. Pour couvrir la nuit, choisir une
-       date.</p>`
-    : '');
+  return pauseBlock + blocks;
 }
 
 function housePanel() {
@@ -3456,13 +3450,12 @@ function housePanel() {
     // etat courant -- alors que la maison n'est PAS vide dans cette branche :
     // le bouton etait injoignable en prod. Meme forme que « Nous sommes
     // rentrés » ci-dessus, son symetrique dans l'autre etat.
-    : `<div class="act-row">${absentDate === ''
-         ? `<button type="button" class="act" disabled title="choisir une date d’abord">Maison vide</button>`
-         : `<button type="button" class="act" data-body="${esc(JSON.stringify(absentDate
-             ? { cmd: 'absent', value: 'on', until: absentDate }
-             : { cmd: 'absent', value: 'on' }))}">Maison vide</button>`}
+    : `<div class="act-row">
+         <button type="button" class="act" data-body="${esc(JSON.stringify(absentDate
+           ? { cmd: 'absent', value: 'on', until: absentDate }
+           : { cmd: 'absent', value: 'on' }))}">Maison vide</button>
        </div>
-       <div class="act-row act-dur act-vals">${ACT_ELBOW}<span class="act-tag">jusqu'à</span>
+       <div class="act-row act-dur">${ACT_ELBOW}<span class="act-tag">jusqu'à</span>
          <button type="button" class="dur${absentDate === null ? ' on' : ''}"
            data-abs-mode="jour" aria-pressed="${absentDate === null}">ce soir</button>
          <input type="date" class="abs-date${absentDate ? ' on' : ''}" data-for="absent"
@@ -3589,9 +3582,8 @@ function bindActions() {
         pauseHours = Number(dur.dataset.pauseH);
       }
       else if (dur.dataset.absMode) {
-        absentDate = dur.dataset.absMode === 'jour' ? null : (absentDate || '');
+        absentDate = null;   // « ce soir » : le seul mode que ce bouton propose
       }
-      else durPick.set(durKey(dur.dataset.zone, dur.dataset.kind), dur.dataset.dur);
       renderActions();
       return;
     }
@@ -3711,10 +3703,6 @@ async function load() {
     if (!payload) $('zones').innerHTML = `<p class="empty">${esc(mute[0].toUpperCase() + mute.slice(1))} (${esc(e.message)}).</p>`;
   }
 }
-
-fetch('build.txt').then((r) => r.ok ? r.text() : '').then((v) => {
-  if (v) document.title = 'Maison · Confort';
-}).catch(() => {});
 
 // Meme correction qu'au changement de hash (voir bindRoute) : un lien de piece
 // ouvert au chargement alors que l'onglet memorise etait "calibration" ou

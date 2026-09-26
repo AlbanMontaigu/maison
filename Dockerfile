@@ -11,8 +11,11 @@ COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY docker-entrypoint.d/ /docker-entrypoint.d/
 COPY frontend/ /usr/share/nginx/html/
 
-# Human-readable build timestamp, shown in the footer so a deployed instance
-# can be told apart from another at a glance (same trick as flip7).
+# Human-readable build timestamp, served at /build.txt so a deployed instance can
+# be told apart from another with one curl. It is NOT in the footer: the page
+# fetched it and threw it away to rewrite its own title with the title it already
+# had -- dead since the footer was rebuilt around the window and the last push.
+# An ops probe is what it is, so that is where it is said.
 RUN date -u "+%d/%m/%Y %H:%M UTC" > /usr/share/nginx/html/build.txt
 
 # Cache-busting by URL. Without it, a redeploy changes the files but not their
