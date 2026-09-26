@@ -3619,6 +3619,27 @@ function bindActions() {
 // fraiche si elle resout apres. Seul le dernier load() lance a le droit d'ecrire.
 let _loadSeq = 0;
 
+// Ce que `render()` dereference SANS jamais demander s'il est la. Rien de plus :
+// chaque bloc de la page a deja son propre filet (`has`, `Array.isArray`,
+// `typeof`), et valider deux fois le detail creerait une seconde definition du
+// payload, libre de deriver de l'export. Ici on ne verifie que le squelette.
+//
+// `generated_at` en fait partie et pas seulement les series : il traverse
+// `hhmm()` -> `Intl.formatToParts()`, qui LEVE sur une date invalide. Le pied de
+// page suffisait donc a emporter tout le rendu.
+//
+// Retourne la raison (pour la dire) ou null.
+function shapeProblem(p) {
+  if (!p || typeof p !== 'object') return 'ce n’est pas un objet';
+  if (!Array.isArray(p.t)) return 'pas d’axe de temps (`t`)';
+  if (!Array.isArray(p.zones)) return 'pas de liste de pièces (`zones`)';
+  if (!Number.isFinite(Date.parse(p.generated_at))) return '`generated_at` illisible';
+  const z = p.zones.find((x) => !x || typeof x.name !== 'string' || !x.current
+    || typeof x.current !== 'object');
+  if (z !== undefined) return 'une pièce sans nom ni état courant';
+  return null;
+}
+
 async function load() {
   const seq = ++_loadSeq;
   try {
@@ -3633,16 +3654,41 @@ async function load() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const parsed = await res.json();
     if (seq !== _loadSeq) return;
+    // The payload the image ships when no push has landed yet. Said before the
+    // shape check, because it HAS no shape -- and it is a waiting state, not a
+    // broken one.
+    if (parsed && parsed.error) {
+      $('zones').innerHTML = `<p class="empty">${esc(parsed.error)}</p>`;
+      return;
+    }
+    // Rule 1 of the write path, applied to the read path: the shape, not the
+    // status. Any JSON was accepted here, and `render()` reaches straight for
+    // `payload.zones.filter` -- a payload without `zones` threw MID-RENDER,
+    // leaving the page half-built and mute, and throwing again every minute. A
+    // container still serving a file from before a schema change, or an alias
+    // pointing at somebody else's JSON, both look exactly like that.
+    const bad = shapeProblem(parsed);
+    if (bad) throw Object.assign(new Error(bad), { readable: false });
+    const prev = payload;
     payload = parsed;
-    if (payload.error) { $('zones').innerHTML = `<p class="empty">${esc(payload.error)}</p>`; payload = null; return; }
-    render();
+    try {
+      render();
+    } catch (err) {
+      // Le payload passe la forme mais casse le rendu : on REVIENT au precedent,
+      // qui est celui deja a l'ecran. Le garder ferait rejouer le meme plantage
+      // a chaque clic et a chaque minute, sur une page dont le DOM decrit autre
+      // chose que `payload`.
+      payload = prev;
+      throw Object.assign(new Error(`rendu impossible (${err.message})`), { readable: false });
+    }
   } catch (e) {
     if (seq !== _loadSeq) return;
     // A failed refresh keeps the last good view: a network blip must not erase
     // the house. Only the status pill says something is wrong.
-    $('engine').textContent = 'données injoignables';
+    const mute = e.readable === false ? 'données illisibles' : 'données injoignables';
+    $('engine').textContent = mute;
     $('engine').className = 'pill stale';
-    if (!payload) $('zones').innerHTML = `<p class="empty">Données injoignables (${esc(e.message)}).</p>`;
+    if (!payload) $('zones').innerHTML = `<p class="empty">${esc(mute[0].toUpperCase() + mute.slice(1))} (${esc(e.message)}).</p>`;
   }
 }
 
