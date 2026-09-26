@@ -775,6 +775,19 @@ function zoneDetail(zone, f, t) {
   };
   const rows = [];
 
+  // Le denominateur de tous les pourcentages de cette fiche : les creneaux qui
+  // ont EU LIEU, pas la journee entiere. La vue « aujourd'hui » couvre 00 h ->
+  // 24 h par construction (voir buildView), donc `f.ac.length` comptait l'apres
+  // -midi qui n'est pas encore arrive : a midi, une clim ayant tourne 3 h
+  // affichait 12 % au lieu de 25 %. Et la ligne « hors de l'objectif » juste
+  // au-dessus, elle, se calculait deja sur l'ecoule -- deux denominateurs dans
+  // la meme liste, dont un seul etait juste.
+  // Une fenetre CLOSE (hier, 7 j) n'a pas de « maintenant » : elle est ecoulee
+  // tout entiere, et c'est bien « de la fenetre » qu'il faut dire.
+  const elapsed = (viewNowIdx >= 0 ? viewNowIdx + 1 : f.T.length);
+  const scope = viewNowIdx >= 0 ? 'du temps écoulé' : 'de la fenêtre';
+  const pctOf = (n) => Math.round((n / Math.max(1, elapsed)) * 100);
+
   const T = f.T.filter((v) => v != null);
   if (T.length) {
     const avg = T.reduce((a, b) => a + b, 0) / T.length;
@@ -796,12 +809,12 @@ function zoneDetail(zone, f, t) {
   if (zone.has_ac && f.has.ac) {
     const on = f.ac.filter(Boolean).length;
     rows.push(['Clim', on ? dur(on) : 'jamais',
-      on ? `${Math.round((on / f.ac.length) * 100)} % de la fenêtre` : 'sur cette fenêtre']);
+      on ? `${pctOf(on)} % ${scope}` : 'sur cette fenêtre']);
   }
   if (zone.has_fan && f.has.fan) {
     const on = f.fan.filter(Boolean).length;
     rows.push(['Ventilo', on ? dur(on) : 'jamais',
-      on ? `${Math.round((on / f.fan.length) * 100)} % de la fenêtre` : 'sur cette fenêtre']);
+      on ? `${pctOf(on)} % ${scope}` : 'sur cette fenêtre']);
   }
   if (zone.has_velux && f.has.velux) {
     const v = f.velux.filter((x) => x != null);
