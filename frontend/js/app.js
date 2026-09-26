@@ -2645,24 +2645,28 @@ function helpHtml() {
 
     <h3>Électricité</h3>
     <p>Ce que consomme <em>toute</em> la maison, relevé sur le compteur Linky :
-    le total du jour, du mois et de l'année, en euros au tarif du contrat, plus
-    la puissance appelée à l'instant et ce qu'elle coûterait sur une heure. Ce
-    n'est pas la consommation d'une pièce, et ce n'est pas que le chauffage —
-    c'est le compteur entier, machines et lumières comprises.</p>
+    le total du <em>dernier jour complet</em> — daté, parce qu'Enedis publie en
+    différé et que ce n'est donc pas aujourd'hui —, du mois et de l'année, en
+    euros au tarif du contrat. Ce n'est pas la consommation d'une pièce, et ce
+    n'est pas que le chauffage — c'est le compteur entier, machines et lumières
+    comprises.</p>
 
     <h3>État du moteur</h3>
-    <p>La ligne sous l'en-tête dit si le moteur pilote réellement la maison,
-    quand il a décidé pour la dernière fois, et la consigne d'agenda du jour.
-    Elle devient un <em>bandeau rouge</em> quand le moteur ne parvient plus à
-    lire la maison — plus rien n'est alors piloté — et un <em>bandeau
-    orange</em> quand l'agenda n'a toujours pas rendu de verdict du jour à
-    l'heure où il aurait dû.</p>
+    <p>Le badge <em>pilotage</em> de l'en-tête dit si le moteur pilote réellement
+    la maison et quand il a décidé pour la dernière fois ; le reste (consigne
+    d'agenda du jour, agenda muet, calibration en anomalie) est dans son survol.
+    Un <em>bandeau rouge</em> le remplace quand le moteur ne parvient plus à lire
+    la maison — plus rien n'est alors piloté — et un <em>bandeau orange</em>
+    apparaît quand l'agenda n'a toujours pas rendu de verdict du jour à l'heure
+    où il aurait dû.</p>
 
     <h3>Calibration des sondes</h3>
-    <p>Le dernier contrôle entre la sonde de chaque pièce et la vanne de son
-    radiateur. Une <em>dérive</em> n'est pas une panne : c'est l'écart que le
-    contrôle recale de lui-même. Le rapport ne s'ouvre tout seul que sur une
-    <em>anomalie</em> — mesure illisible, écart aberrant, recalage impossible.</p>
+    <p>Sur son propre onglet : le dernier contrôle entre la sonde de chaque pièce
+    et la vanne de son radiateur. Une <em>dérive</em> n'est pas une panne : c'est
+    l'écart que le contrôle recale de lui-même. Une <em>anomalie</em> — mesure
+    illisible, écart aberrant, recalage impossible — colore la pièce et se
+    signale aussi dans le survol du badge <em>pilotage</em>, en haut de page, pour
+    qu'elle n'attende pas qu'on ouvre l'onglet.</p>
     <p>Sous le rapport, l'écart de chaque pièce contrôle après contrôle, sur la
     fenêtre de la page. Une pièce dont l'écart reste teinté d'un bout à l'autre
     de sa ligne dérive depuis toujours ; un écart qui grandit, lui, s'aggrave.
@@ -2682,10 +2686,13 @@ function helpHtml() {
       dans chaque action. L'adresse porte la pièce, donc le lien se partage et
       le bouton Retour du navigateur ramène à l'ensemble.</li>
       <li><b>La courbe du coût</b> est celle de <em>toute</em> la maison, en
-      haut de page. Sur « Jour » elle monte depuis minuit ; sur « 7 j » chaque
-      pic est le total d'une journée, puisque le compteur repart de zéro à
-      minuit. Elle se construit à partir des relevés pris toutes les 10 min :
-      un compteur ne donne qu'un cumul instantané, l'historique se fabrique.</li>
+      haut de page. Ce n'est pas un cumul qui monte depuis minuit : c'est la
+      <em>puissance appelée</em>, un point par demi-heure, en euros par heure au
+      tarif du contrat — une pointe est donc un moment où la maison tire fort,
+      pas un total. Elle vient de la courbe de charge Enedis, qui est publiée en
+      différé : la journée en cours n'en a presque aucun point, et la page le dit
+      au lieu de tracer un creux. Sous elle, combien d'appareils tournaient en
+      même temps — c'est ce qui explique ses pointes.</li>
       <li><b>Hier / Aujourd'hui / 7 j</b> — des jours calendaires de la maison,
       tracés de 00 h à 24 h. Sur « Aujourd'hui », la partie à venir reste vide
       et un trait rouge marque l'heure qu'il est ; « Hier » est une journée
