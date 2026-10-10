@@ -2129,11 +2129,16 @@ function battRowHtml(it) {
   const lvl = battLevel(it.level);
   const pct = Number.isFinite(it.pct) ? Math.max(0, Math.min(100, it.pct)) : null;
   const state = it.state ? (BATT_STATE[it.state] || it.state) : null;
-  const value = pct != null ? `${pct} %` : state || '—';
+  // `value_text` / `detail`: optional ready-made strings from the house, for
+  // devices whose own percentage lies (e.g. a valve read by its voltage). The
+  // page shows them as given -- it knows nothing about volts or chemistry.
+  const value = it.value_text || (pct != null ? `${pct} %` : state || '—');
   // A silent device's last value is not a reading any more: kept, but said so.
   const age = Number.isFinite(it.last_comm_age_min) ? agoS(it.last_comm_age_min * 60) : null;
   const sub = [
-    pct != null && state ? esc(state) : null,
+    it.value_text && pct != null ? `≈ ${pct} %` : null,
+    it.detail ? esc(it.detail) : null,
+    pct != null && state && !it.value_text ? esc(state) : null,
     lvl === 'silent' ? `muet depuis ${esc(age || '?')} · valeur non fiable` : null,
     esc(it.source || ''),
   ].filter(Boolean).join(' · ');
