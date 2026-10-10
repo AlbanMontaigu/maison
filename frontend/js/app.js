@@ -2232,10 +2232,14 @@ function battRowHtml(it, cfg = DEVICE_TABS.batteries) {
     lvl === 'silent' && age ? `muet depuis ${esc(age)} · valeur non fiable` : null,
     esc(it.source || ''),
   ].filter(Boolean).join(' · ');
+  // A bar only where there is a real percentage to draw. A device that only
+  // reports a state (Hue « connecté », a plug « non mesuré ») gets a status
+  // light in its level colour: a full or empty bar would invent a measure.
+  const dot = pct == null ? '<i class="batt-dot" aria-hidden="true"></i>' : '';
   return `<li class="batt batt-${lvl}">
       <span class="batt-name">${esc(it.name)}</span>
-      <span class="batt-val">${esc(value)}<span class="sr"> — ${esc(cfg.level[lvl].label)}</span></span>
-      ${pct != null || lvl !== 'unknown' ? `<span class="batt-bar" aria-hidden="true"><i style="width:${pct != null ? pct : (lvl === 'ok' ? 100 : 0)}%"></i></span>` : ''}
+      <span class="batt-val">${dot}${esc(value)}<span class="sr"> — ${esc(cfg.level[lvl].label)}</span></span>
+      ${pct != null ? `<span class="batt-bar" aria-hidden="true"><i style="width:${pct}%"></i></span>` : ''}
       <span class="batt-sub">${sub}</span>
       ${it.chart ? battChartHtml(it.chart) : ''}
     </li>`;
