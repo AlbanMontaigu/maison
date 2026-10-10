@@ -821,6 +821,29 @@ button.act[aria-current] {
   background: repeating-linear-gradient(45deg, var(--neutral) 0 4px, transparent 4px 7px);
 }
 .batt-unknown .batt-bar i { background: var(--neutral); opacity: .5; }
+/* Mini-chart of a device's history + projection (battChartHtml). The SVG is
+   stretched (preserveAspectRatio none), so strokes keep their width with
+   vector-effect; axis labels are HTML, below, so they are never squashed. */
+.batt-chartw { grid-column: 1 / -1; margin-top: .2rem; }
+.batt-chart { display: block; width: 100%; height: 54px; background: var(--card); border-radius: 4px; }
+.batt-chart path, .batt-chart line { vector-effect: non-scaling-stroke; fill: none; }
+.batt-chart .bp { stroke: var(--ok); stroke-width: 1.6; }
+.batt-warn .batt-chart .bp { stroke: var(--warm); }
+.batt-critical .batt-chart .bp { stroke: var(--alert); }
+.batt-silent .batt-chart .bp { stroke: var(--neutral); }
+.batt-chart .bf { stroke: var(--ink-dim); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.batt-chart .bfe { fill: var(--alert); }
+.batt-chart .bl { stroke-width: 1; stroke-dasharray: 2 3; }
+.batt-chart .bl-warn { stroke: var(--warm); }
+.batt-chart .bl-critical { stroke: var(--alert); }
+.batt-chart .bm { stroke: var(--ink-dim); stroke-width: 1; stroke-dasharray: 1 2; }
+.batt-axis {
+  display: flex; justify-content: space-between; gap: .4rem;
+  font-size: .62rem; color: var(--ink-dim); font-variant-numeric: tabular-nums;
+}
+.batt-legend { text-align: center; }
+.batt-legend .bl-warn { color: var(--warm); }
+.batt-legend .bl-critical { color: #a5281a; }
 /* Read by screen readers only (the bar's colour carries the level visually). */
 .sr {
   position: absolute; width: 1px; height: 1px; overflow: hidden;

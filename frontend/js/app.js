@@ -2125,6 +2125,50 @@ let battKind = store.get(BATT_KIND_KEY) || '';
 
 const battLevel = (l) => (BATT_LEVELS.includes(l) ? l : 'unknown');
 
+// Mini-chart of a device's history, when the house sends one (`it.chart`):
+// { unit, points: [[isoDate, value]], lines: [{value, level, label}],
+//   marks: [{date, label}], forecast: [[isoDate, value], [isoDate, value]] }.
+// Everything -- series, reference lines, projection -- comes from the payload;
+// this only draws it. The x axis runs from the first point to the end of the
+// projection, so "when will it cross the line" reads straight off the chart.
+const BATT_CHART_W = 300;
+const BATT_CHART_H = 54;
+const BATT_MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+const battDay = (iso) => Date.parse(`${iso}T12:00:00`);
+const battMonth = (ms) => { const d = new Date(ms); return `${BATT_MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`; };
+
+function battChartHtml(c) {
+  const pts = (Array.isArray(c && c.points) ? c.points : [])
+    .map(([d, v]) => [battDay(d), Number(v)])
+    .filter(([t, v]) => Number.isFinite(t) && Number.isFinite(v));
+  if (pts.length < 2) return '';
+  const fc = (Array.isArray(c.forecast) ? c.forecast : [])
+    .map(([d, v]) => [battDay(d), Number(v)])
+    .filter(([t, v]) => Number.isFinite(t) && Number.isFinite(v));
+  const lines = (Array.isArray(c.lines) ? c.lines : []).filter((l) => Number.isFinite(l.value));
+  const marks = (Array.isArray(c.marks) ? c.marks : []).map((m) => [battDay(m.date), m.label]).filter(([t]) => Number.isFinite(t));
+  const ts = [...pts, ...fc].map(([t]) => t);
+  const vs = [...pts, ...fc].map(([, v]) => v).concat(lines.map((l) => l.value));
+  const t0 = Math.min(...ts); const t1 = Math.max(...ts);
+  const pad = (Math.max(...vs) - Math.min(...vs)) * 0.12 || 0.05;
+  const v0 = Math.min(...vs) - pad; const v1 = Math.max(...vs) + pad;
+  const x = (t) => ((t - t0) / ((t1 - t0) || 1)) * BATT_CHART_W;
+  const y = (v) => BATT_CHART_H - ((v - v0) / ((v1 - v0) || 1)) * BATT_CHART_H;
+  const path = (arr) => arr.map(([t, v], i) => `${i ? 'L' : 'M'}${x(t).toFixed(1)},${y(v).toFixed(1)}`).join('');
+  const unit = c.unit ? ` ${c.unit}` : '';
+  const fmtV = (v) => `${String(v.toFixed(2)).replace('.', ',')}${unit}`;
+  const svg = `<svg class="batt-chart" viewBox="0 0 ${BATT_CHART_W} ${BATT_CHART_H}" preserveAspectRatio="none" aria-hidden="true">
+      ${lines.map((l) => `<line class="bl bl-${esc(battLevel(l.level))}" x1="0" x2="${BATT_CHART_W}" y1="${y(l.value).toFixed(1)}" y2="${y(l.value).toFixed(1)}"><title>${esc(l.label || '')} ${esc(fmtV(l.value))}</title></line>`).join('')}
+      ${marks.map(([t, label]) => `<line class="bm" x1="${x(t).toFixed(1)}" x2="${x(t).toFixed(1)}" y1="0" y2="${BATT_CHART_H}"><title>${esc(label || '')}</title></line>`).join('')}
+      <path class="bp" d="${path(pts)}"/>
+      ${fc.length === 2 ? `<path class="bf" d="${path(fc)}"/><circle class="bfe" cx="${x(fc[1][0]).toFixed(1)}" cy="${y(fc[1][1]).toFixed(1)}" r="2.5"/>` : ''}
+    </svg>`;
+  const legend = lines.map((l) => `<span class="bl-${esc(battLevel(l.level))}">— ${esc(l.label || '')} ${esc(fmtV(l.value))}</span>`).join(' ');
+  return `<div class="batt-chartw">${svg}
+      <div class="batt-axis"><span>${esc(battMonth(t0))}</span><span class="batt-legend">${legend}</span><span>${esc(battMonth(t1))}</span></div>
+    </div>`;
+}
+
 function battRowHtml(it) {
   const lvl = battLevel(it.level);
   const pct = Number.isFinite(it.pct) ? Math.max(0, Math.min(100, it.pct)) : null;
@@ -2147,6 +2191,7 @@ function battRowHtml(it) {
       <span class="batt-val">${esc(value)}<span class="sr"> — ${esc(BATT_LEVEL[lvl].label)}</span></span>
       <span class="batt-bar" aria-hidden="true"><i style="width:${pct != null ? pct : 0}%"></i></span>
       <span class="batt-sub">${sub}</span>
+      ${it.chart ? battChartHtml(it.chart) : ''}
     </li>`;
 }
 

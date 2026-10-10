@@ -98,6 +98,21 @@ a snapshot refreshed at most hourly, carrying its own `generated_at` and
 own alerts — the page groups and colours, it does not judge. A payload
 without the key (older exporter) just shows a neutral line on that tab.
 
+Some devices lie about their percentage (a valve on lithium cells reads
+"100 %" until it dies), so the house may send, per item, optional fields the
+page renders as given and never computes:
+
+- `value_text` — shown instead of the percentage (e.g. `2,84 V`);
+- `detail` — one line under it (remaining time, estimated replacement date,
+  when the cells were fitted, warnings);
+- `chart` — a mini-chart: `{unit, points: [[isoDate, value]...],
+  lines: [{value, level, label}...], marks: [{date, label}...],
+  forecast: [[isoDate, value], [isoDate, value]]}`. The x axis runs from the
+  first point to the end of the forecast, so where the dashed projection meets
+  the `critical` line *is* the estimated replacement date.
+
+Items without these fields render exactly as before.
+
 ## Deploy
 
 Built and served by Coolify from this repository. The one piece of
