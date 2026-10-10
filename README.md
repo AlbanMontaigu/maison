@@ -90,6 +90,14 @@ The action vocabulary (`actions`) is exported straight from the engine's own
 table, so a new action shows up here with its emoji and French label without
 anyone editing this repo.
 
+`batteries` (the Batteries tab) is the one block that is not as fresh as the
+push: reading every battery is a slow sweep of the house's devices, so it is
+a snapshot refreshed at most hourly, carrying its own `generated_at` and
+`stale_after_min`. Each device arrives with its level already decided
+(`critical`/`warn`/`ok`/`silent`/`unknown`) by the same rules as the house's
+own alerts — the page groups and colours, it does not judge. A payload
+without the key (older exporter) just shows a neutral line on that tab.
+
 ## Deploy
 
 Built and served by Coolify from this repository. The one piece of

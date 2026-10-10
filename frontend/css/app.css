@@ -270,6 +270,7 @@ body {
    (voir render()), donc rien à cacher en plus côté CSS. */
 body[data-tab="dashboard"] #chauffage,
 body[data-tab="dashboard"] #calib,
+body[data-tab="dashboard"] #batteries,
 body:not([data-tab="dashboard"]) #view,
 body:not([data-tab="dashboard"]) #back,
 body:not([data-tab="dashboard"]) #overview,
@@ -764,6 +765,63 @@ button.act[aria-current] {
 .cal-card-delta { font-size: 1.05rem; font-weight: 660; font-variant-numeric: tabular-nums; }
 .cal-card-sub, .cal-card-status { font-size: .7rem; color: var(--ink-dim); }
 .cal-card-worst { font-size: .7rem; color: var(--ink-dim); margin-top: -.1rem; }
+
+/* ── Batteries ─────────────────────────────────────────────────────────────
+   Same card as .calib. One row per device: name and value on the first line,
+   the level bar full width under them, room/source in small print. A list,
+   not a card grid: ~50 devices read top-down, most urgent first. */
+.batt-tiles { display: flex; flex-wrap: wrap; gap: .35rem; margin: 0 0 .7rem; }
+.batt-tile {
+  font-size: .76rem; padding: .25rem .55rem; border-radius: 8px;
+  background: var(--card-2); color: var(--ink-dim);
+  border-left: 3px solid var(--neutral);
+}
+.batt-tile b { color: var(--ink); font-weight: 660; font-variant-numeric: tabular-nums; }
+.batt-tile.batt-critical { border-left-color: var(--alert); }
+.batt-tile.batt-warn { border-left-color: var(--warm); }
+.batt-tile.batt-ok { border-left-color: var(--ok); }
+.batt-stale { color: #a5281a; font-weight: 560; }
+.batt-filter { display: flex; flex-wrap: wrap; gap: .3rem; margin: 0 0 .4rem; }
+.batt-n { font-weight: 500; opacity: .7; font-variant-numeric: tabular-nums; }
+.batt-h { display: flex; gap: .35rem; align-items: baseline; }
+.batt-list { list-style: none; margin: 0 0 .4rem; padding: 0; }
+.batt {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  gap: .15rem .6rem; align-items: baseline;
+  padding: .45rem 0; border-top: 1px solid var(--edge);
+}
+.batt:first-child { border-top: 0; }
+.batt-name { font-weight: 600; overflow-wrap: anywhere; }
+.batt-val { font-weight: 660; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.batt-bar {
+  grid-column: 1 / -1; height: 6px; border-radius: 3px;
+  background: var(--card-2); overflow: hidden;
+}
+.batt-bar i { display: block; height: 100%; border-radius: 3px; background: var(--ok); }
+.batt-sub { grid-column: 1 / -1; font-size: .72rem; color: var(--ink-dim); }
+.batt-critical .batt-val { color: #a5281a; }
+.batt-critical .batt-bar i { background: var(--alert); }
+.batt-warn .batt-val { color: var(--warm); }
+.batt-warn .batt-bar i { background: var(--warm); }
+/* A silent device's value is the last one heard, not a reading: drawn, but
+   greyed and hatched so it cannot pass for a healthy bar. */
+.batt-silent .batt-name, .batt-silent .batt-val { color: var(--ink-dim); }
+.batt-silent .batt-bar i {
+  background: repeating-linear-gradient(45deg, var(--neutral) 0 4px, transparent 4px 7px);
+}
+.batt-unknown .batt-bar i { background: var(--neutral); opacity: .5; }
+/* Wide screens: name, bar and value on one line. */
+@media (min-width: 720px) {
+  .batt { grid-template-columns: minmax(10rem, 16rem) minmax(0, 1fr) 6.5rem; align-items: center; }
+  .batt-bar { grid-column: 2; grid-row: 1; }
+  .batt-val { grid-column: 3; grid-row: 1; text-align: right; }
+  .batt-sub { grid-column: 1 / -1; }
+}
+/* Read by screen readers only (the bar's colour carries the level visually). */
+.sr {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
 
 /* Trace de calibration d'une piece, dans sa propre carte (voir CAL_ROW_H dans
    app.js) : le viewBox vaut les pixels, les reperes y gardent leurs proportions. */
