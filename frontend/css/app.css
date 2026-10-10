@@ -271,6 +271,7 @@ body {
 body[data-tab="dashboard"] #chauffage,
 body[data-tab="dashboard"] #calib,
 body[data-tab="dashboard"] #batteries,
+body[data-tab="dashboard"] #signal,
 body:not([data-tab="dashboard"]) #view,
 body:not([data-tab="dashboard"]) #back,
 body:not([data-tab="dashboard"]) #overview,

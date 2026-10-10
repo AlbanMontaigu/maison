@@ -113,6 +113,13 @@ page renders as given and never computes:
 
 Items without these fields render exactly as before.
 
+`signal` (the Signal tab) has the same shape and the same freshness contract
+as `batteries` (hourly snapshot, `generated_at`, `stale_after_min`): one item
+per radio device, with `level`, optional `pct` (signal quality 0-100),
+`value_text`, `detail`, `kind`, `room`, plus a free-text `note` shown under
+the cards (how to read each vendor's scale). Both tabs share one renderer;
+only the words for the levels and the verdict line differ.
+
 ## Deploy
 
 Built and served by Coolify from this repository. The one piece of

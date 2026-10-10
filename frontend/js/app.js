@@ -35,7 +35,7 @@ let view = VIEWS.includes(store.get(VIEW_KEY)) ? store.get(VIEW_KEY) : 'day';
 // Meme logique que `view` : memorisee, pas dans le hash. Le hash reste reserve
 // a une piece (#zone=…), partageable ; l'onglet n'a pas cette pretention. Une
 // piece n'existe que sous "dashboard" -- ouvrir un lien de piece y ramene.
-const TABS = ['dashboard', 'calibration', 'rapports', 'batteries'];
+const TABS = ['dashboard', 'calibration', 'rapports', 'batteries', 'signal'];
 let tab = TABS.includes(store.get(TAB_KEY)) ? store.get(TAB_KEY) : 'dashboard';
 // « Hier » et « 7 j » sont RETROSPECTIVES : la fenetre est close. Ce qui decrit
 // l'instant present -- action en cours, temperature actuelle, anciennete des
@@ -2119,9 +2119,8 @@ const BATT_STATE = {
   low: 'faible', very_low: 'très faible', critical: 'critique',
 };
 const BATT_KIND_KEY = 'maison.batteries.kind';
-// Equipment-kind filter. Not validated against a list -- kinds come from the
-// payload; an unknown one simply matches nothing and falls back to "all".
-let battKind = store.get(BATT_KIND_KEY) || '';
+// Equipment-kind filter (per tab, see deviceKind). Not validated against a
+// list -- kinds come from the payload; an unknown one falls back to "all".
 
 const battLevel = (l) => (BATT_LEVELS.includes(l) ? l : 'unknown');
 
@@ -2169,7 +2168,49 @@ function battChartHtml(c) {
     </div>`;
 }
 
-function battRowHtml(it) {
+// One renderer for every "device list" tab (Batteries, Signal): cards per
+// room, kind filter, level tiles, stale banner. What differs per tab is only
+// words -- the level labels, the verdict line, the empty message -- held in a
+// small config below. Data, levels, values and details all come from the
+// payload; the page still judges nothing.
+const DEVICE_TABS = {
+  batteries: {
+    level: BATT_LEVEL,
+    none: 'Pas de relevé des batteries dans ces données pour l\'instant.',
+    empty: 'Aucun équipement à batterie dans le relevé.',
+    verdict: (c) => (c.critical
+      ? `${c.critical} batterie${c.critical > 1 ? 's' : ''} à changer`
+      : c.warn ? 'Aucune batterie critique' : 'Toutes les batteries vont bien'),
+    footnote: (b) => {
+      const th = b.thresholds || {};
+      return Number.isFinite(th.critical) && Number.isFinite(th.warn)
+        ? `critique sous ${th.critical} %, à surveiller sous ${th.warn} %. Un équipement silencieux ne communique plus : sa dernière valeur n'est pas fiable.`
+        : '';
+    },
+  },
+  signal: {
+    level: {
+      critical: { label: 'faible', plural: 'faibles' },
+      warn: { label: 'moyen', plural: 'moyens' },
+      silent: { label: 'silencieux', plural: 'silencieux' },
+      unknown: { label: 'non mesuré', plural: 'non mesurés' },
+      ok: { label: 'bon', plural: 'bons' },
+    },
+    none: 'Pas de relevé du signal dans ces données pour l\'instant.',
+    empty: 'Aucun équipement radio dans le relevé.',
+    verdict: (c) => (c.critical
+      ? `${c.critical} équipement${c.critical > 1 ? 's' : ''} au signal faible ou injoignable${c.critical > 1 ? 's' : ''}`
+      : c.warn ? 'Aucun signal critique' : 'Tous les signaux mesurés sont bons'),
+    footnote: (b) => (typeof b.note === 'string' ? b.note : ''),
+  },
+};
+const deviceKindKey = (tabId) => `maison.${tabId}.kind`;
+const deviceKind = {
+  batteries: store.get(BATT_KIND_KEY) || '',
+  signal: store.get(deviceKindKey('signal')) || '',
+};
+
+function battRowHtml(it, cfg = DEVICE_TABS.batteries) {
   const lvl = battLevel(it.level);
   const pct = Number.isFinite(it.pct) ? Math.max(0, Math.min(100, it.pct)) : null;
   const state = it.state ? (BATT_STATE[it.state] || it.state) : null;
@@ -2183,23 +2224,24 @@ function battRowHtml(it) {
     it.value_text && pct != null ? `≈ ${pct} %` : null,
     it.detail ? esc(it.detail) : null,
     pct != null && state && !it.value_text ? esc(state) : null,
-    lvl === 'silent' ? `muet depuis ${esc(age || '?')} · valeur non fiable` : null,
+    lvl === 'silent' && age ? `muet depuis ${esc(age)} · valeur non fiable` : null,
     esc(it.source || ''),
   ].filter(Boolean).join(' · ');
   return `<li class="batt batt-${lvl}">
       <span class="batt-name">${esc(it.name)}</span>
-      <span class="batt-val">${esc(value)}<span class="sr"> — ${esc(BATT_LEVEL[lvl].label)}</span></span>
-      <span class="batt-bar" aria-hidden="true"><i style="width:${pct != null ? pct : 0}%"></i></span>
+      <span class="batt-val">${esc(value)}<span class="sr"> — ${esc(cfg.level[lvl].label)}</span></span>
+      ${pct != null || lvl !== 'unknown' ? `<span class="batt-bar" aria-hidden="true"><i style="width:${pct != null ? pct : (lvl === 'ok' ? 100 : 0)}%"></i></span>` : ''}
       <span class="batt-sub">${sub}</span>
       ${it.chart ? battChartHtml(it.chart) : ''}
     </li>`;
 }
 
-function batteriesHtml(b) {
+function deviceTabHtml(tabId, b) {
+  const cfg = DEVICE_TABS[tabId];
   // Absent (export from before this tab) or null (no successful reading yet):
   // a neutral line, never a broken tab.
   if (!b || typeof b !== 'object' || !Array.isArray(b.items)) {
-    return '<section class="calib calib-none"><span class="cal-age">Pas de relevé des batteries dans ces données pour l\'instant.</span></section>';
+    return `<section class="calib calib-none"><span class="cal-age">${esc(cfg.none)}</span></section>`;
   }
   const items = b.items.filter((it) => it && typeof it.name === 'string');
   const counts = Object.fromEntries(BATT_LEVELS.map((l) => [l, 0]));
@@ -2212,11 +2254,9 @@ function batteriesHtml(b) {
 
   const tiles = BATT_LEVELS
     .filter((l) => counts[l] || l === 'critical' || l === 'warn' || l === 'ok')
-    .map((l) => `<span class="batt-tile batt-${l}"><b>${counts[l]}</b> ${esc(counts[l] > 1 ? BATT_LEVEL[l].plural : BATT_LEVEL[l].label)}</span>`)
+    .map((l) => `<span class="batt-tile batt-${l}"><b>${counts[l]}</b> ${esc(counts[l] > 1 ? cfg.level[l].plural : cfg.level[l].label)}</span>`)
     .join('');
-  const th = b.thresholds || {};
-  const thTxt = Number.isFinite(th.critical) && Number.isFinite(th.warn)
-    ? `critique sous ${th.critical} %, à surveiller sous ${th.warn} %` : '';
+  const footnote = cfg.footnote(b);
   const staleNote = stale
     ? `<p class="banner warn"><b>Relevé périmé</b><span class="bsub">Dernier relevé réussi ${esc(ageTxt)}${b.last_error ? ` — dernière tentative en échec : ${esc(b.last_error)}` : ''}. Les niveaux ci-dessous peuvent avoir changé.</span></p>`
     : '';
@@ -2228,7 +2268,7 @@ function batteriesHtml(b) {
     const k = it.kind || '?';
     kinds.set(k, (kinds.get(k) || 0) + 1);
   }
-  const kind = kinds.has(battKind) ? battKind : '';
+  const kind = kinds.has(deviceKind[tabId]) ? deviceKind[tabId] : '';
   const filter = kinds.size > 1
     ? `<div class="batt-filter" role="group" aria-label="Type d'équipement">
         ${[['', 'Tous', items.length], ...[...kinds].map(([k, n]) => [k, k, n])]
@@ -2248,35 +2288,37 @@ function batteriesHtml(b) {
         const worst = BATT_LEVELS.find((l) => list.some((it) => battLevel(it.level) === l)) || 'ok';
         return `<article class="batt-card batt-${worst}">
           <h4 class="batt-h">${esc(r)} <span class="batt-n">${list.length}</span></h4>
-          <ul class="batt-list">${list.map(battRowHtml).join('')}</ul>
+          <ul class="batt-list">${list.map((it) => battRowHtml(it, cfg)).join('')}</ul>
         </article>`;
       }).join('')}</div>`
-    : '<p class="cal-fine">Aucun équipement à batterie dans le relevé.</p>';
+    : `<p class="cal-fine">${esc(cfg.empty)}</p>`;
 
   return `<section class="calib batt-wrap${counts.critical ? ' bad' : ''}">
       <div class="cal-head">
-        <span class="cal-verdict${counts.critical ? ' bad' : ''}">${counts.critical
-          ? `${counts.critical} batterie${counts.critical > 1 ? 's' : ''} à changer`
-          : counts.warn ? 'Aucune batterie critique' : 'Toutes les batteries vont bien'}</span>
+        <span class="cal-verdict${counts.critical ? ' bad' : ''}">${esc(cfg.verdict(counts))}</span>
         <span class="cal-age${stale ? ' batt-stale' : ''}">relevé ${esc(ageTxt)}</span>
       </div>
       <div class="batt-tiles">${tiles}</div>
       ${staleNote}
       ${filter}
       ${body}
-      ${thTxt ? `<p class="cal-fine">${esc(thTxt)}. Un équipement silencieux ne communique plus : sa dernière valeur n'est pas fiable.</p>` : ''}
+      ${footnote ? `<p class="cal-fine">${esc(footnote)}</p>` : ''}
     </section>`;
 }
 
-function bindBatteries() {
-  $('batteries').addEventListener('click', (ev) => {
+const batteriesHtml = (b) => deviceTabHtml('batteries', b);
+const signalHtml = (b) => deviceTabHtml('signal', b);
+
+function bindDeviceTab(tabId) {
+  $(tabId).addEventListener('click', (ev) => {
     const b = ev.target.closest('button[data-kind]');
-    if (!b || b.dataset.kind === battKind) return;
-    battKind = b.dataset.kind;
-    store.set(BATT_KIND_KEY, battKind);
+    if (!b || b.dataset.kind === deviceKind[tabId]) return;
+    deviceKind[tabId] = b.dataset.kind;
+    store.set(tabId === 'batteries' ? BATT_KIND_KEY : deviceKindKey(tabId), deviceKind[tabId]);
     if (payload) render();
   });
 }
+const bindBatteries = () => { bindDeviceTab('batteries'); bindDeviceTab('signal'); };
 
 /* ── render ──────────────────────────────────────────────────────────────── */
 
@@ -2611,6 +2653,7 @@ function render() {
     payload.energy_daily_report, payload.thermal_efficiency, payload.thermal_efficiency_daily);
   $('calib').innerHTML = tab !== 'calibration' ? '' : calibHtml(payload.calibration, payload.calibration_daily);
   $('batteries').innerHTML = tab !== 'batteries' ? '' : batteriesHtml(payload.batteries);
+  $('signal').innerHTML = tab !== 'signal' ? '' : signalHtml(payload.signal);
 
   if (v.empty) {
     $('zones').innerHTML = '<p class="empty">Pas encore de journée complète avant aujourd\'hui.</p>';
