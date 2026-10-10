@@ -811,26 +811,26 @@ button.act[aria-current] {
 }
 .batt-bar i { display: block; height: 100%; border-radius: 3px; background: var(--ok); }
 .batt-sub { grid-column: 1 / -1; font-size: .68rem; color: var(--ink-dim); }
-.batt-critical .batt-val { color: #a5281a; }
-.batt-critical .batt-bar i { background: var(--alert); }
-.batt-warn .batt-val { color: var(--warm); }
-.batt-warn .batt-bar i { background: var(--warm); }
+.batt.batt-critical .batt-val { color: #a5281a; }
+.batt.batt-critical .batt-bar i { background: var(--alert); }
+.batt.batt-warn .batt-val { color: var(--warm); }
+.batt.batt-warn .batt-bar i { background: var(--warm); }
 /* A silent device's value is the last one heard, not a reading: drawn, but
    greyed and hatched so it cannot pass for a healthy bar. */
-.batt-silent .batt-name, .batt-silent .batt-val { color: var(--ink-dim); }
-.batt-silent .batt-bar i {
+.batt.batt-silent .batt-name, .batt.batt-silent .batt-val { color: var(--ink-dim); }
+.batt.batt-silent .batt-bar i {
   background: repeating-linear-gradient(45deg, var(--neutral) 0 4px, transparent 4px 7px);
 }
-.batt-unknown .batt-bar i { background: var(--neutral); opacity: .5; }
+.batt.batt-unknown .batt-bar i { background: var(--neutral); opacity: .5; }
 /* Status light (RAG) for devices with a state but no percentage. */
 .batt-dot {
   display: inline-block; width: .6rem; height: .6rem; border-radius: 50%;
   margin-right: .3rem; vertical-align: -.05rem; background: var(--ok);
 }
-.batt-warn .batt-dot { background: var(--warm); }
-.batt-critical .batt-dot { background: var(--alert); }
-.batt-silent .batt-dot { background: var(--neutral); }
-.batt-unknown .batt-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--neutral); }
+.batt.batt-warn .batt-dot { background: var(--warm); }
+.batt.batt-critical .batt-dot { background: var(--alert); }
+.batt.batt-silent .batt-dot { background: var(--neutral); }
+.batt.batt-unknown .batt-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--neutral); }
 /* Mini-chart of a device's history + projection (battChartHtml). The SVG is
    stretched (preserveAspectRatio none), so strokes keep their width with
    vector-effect; axis labels are HTML, below, so they are never squashed. */
@@ -838,9 +838,9 @@ button.act[aria-current] {
 .batt-chart { display: block; width: 100%; height: 54px; background: var(--card); border-radius: 4px; }
 .batt-chart path, .batt-chart line { vector-effect: non-scaling-stroke; fill: none; }
 .batt-chart .bp { stroke: var(--ok); stroke-width: 1.6; }
-.batt-warn .batt-chart .bp { stroke: var(--warm); }
-.batt-critical .batt-chart .bp { stroke: var(--alert); }
-.batt-silent .batt-chart .bp { stroke: var(--neutral); }
+.batt.batt-warn .batt-chart .bp { stroke: var(--warm); }
+.batt.batt-critical .batt-chart .bp { stroke: var(--alert); }
+.batt.batt-silent .batt-chart .bp { stroke: var(--neutral); }
 .batt-chart .bf { stroke: var(--ink-dim); stroke-width: 1.2; stroke-dasharray: 4 3; }
 .batt-chart .bfe { fill: var(--alert); }
 .batt-chart .bl { stroke-width: 1; stroke-dasharray: 2 3; }
