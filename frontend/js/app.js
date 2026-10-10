@@ -2133,7 +2133,6 @@ function battRowHtml(it) {
   // A silent device's last value is not a reading any more: kept, but said so.
   const age = Number.isFinite(it.last_comm_age_min) ? agoS(it.last_comm_age_min * 60) : null;
   const sub = [
-    it.room ? esc(it.room) : null,
     pct != null && state ? esc(state) : null,
     lvl === 'silent' ? `muet depuis ${esc(age || '?')} · valeur non fiable` : null,
     esc(it.source || ''),
@@ -2172,26 +2171,36 @@ function batteriesHtml(b) {
     ? `<p class="banner warn"><b>Relevé périmé</b><span class="bsub">Dernier relevé réussi ${esc(ageTxt)}${b.last_error ? ` — dernière tentative en échec : ${esc(b.last_error)}` : ''}. Les niveaux ci-dessous peuvent avoir changé.</span></p>`
     : '';
 
-  // Groups in order of their most urgent item: the payload is already sorted
-  // from most urgent to healthiest, so first appearance is that order.
-  const groups = new Map();
+  // Kind filter (Hue, SwitchBot...) and room cards. Both keep the payload's
+  // order: it is sorted most urgent first, so first appearance = urgency.
+  const kinds = new Map();
   for (const it of items) {
     const k = it.kind || '?';
-    if (!groups.has(k)) groups.set(k, []);
-    groups.get(k).push(it);
+    kinds.set(k, (kinds.get(k) || 0) + 1);
   }
-  const kind = groups.has(battKind) ? battKind : '';
-  const filter = groups.size > 1
+  const kind = kinds.has(battKind) ? battKind : '';
+  const filter = kinds.size > 1
     ? `<div class="batt-filter" role="group" aria-label="Type d'équipement">
-        ${[['', 'Tous', items.length], ...[...groups].map(([k, l]) => [k, k, l.length])]
+        ${[['', 'Tous', items.length], ...[...kinds].map(([k, n]) => [k, k, n])]
           .map(([k, label, n]) => `<button type="button" class="hnav-item${k === kind ? ' on' : ''}" data-kind="${esc(k)}"
               aria-pressed="${k === kind}">${esc(label)} <span class="batt-n">${n}</span></button>`).join('')}
       </div>`
     : '';
-  const shown = [...groups].filter(([k]) => !kind || k === kind);
+  const rooms = new Map();
+  for (const it of items) {
+    if (kind && (it.kind || '?') !== kind) continue;
+    const r = it.room || 'Sans pièce';
+    if (!rooms.has(r)) rooms.set(r, []);
+    rooms.get(r).push(it);
+  }
   const body = items.length
-    ? shown.map(([k, list]) => `<h4 class="batt-h">${esc(k)} <span class="batt-n">${list.length}</span></h4>
-        <ul class="batt-list">${list.map(battRowHtml).join('')}</ul>`).join('')
+    ? `<div class="batt-grid">${[...rooms].map(([r, list]) => {
+        const worst = BATT_LEVELS.find((l) => list.some((it) => battLevel(it.level) === l)) || 'ok';
+        return `<article class="batt-card batt-${worst}">
+          <h4 class="batt-h">${esc(r)} <span class="batt-n">${list.length}</span></h4>
+          <ul class="batt-list">${list.map(battRowHtml).join('')}</ul>
+        </article>`;
+      }).join('')}</div>`
     : '<p class="cal-fine">Aucun équipement à batterie dans le relevé.</p>';
 
   return `<section class="calib batt-wrap${counts.critical ? ' bad' : ''}">
