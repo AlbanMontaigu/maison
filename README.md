@@ -120,6 +120,17 @@ per radio device, with `level`, optional `pct` (signal quality 0-100),
 the cards (how to read each vendor's scale). Both tabs share one renderer;
 only the words for the levels and the verdict line differ.
 
+Rendering rules shared by both tabs:
+
+- **Bar only for a real percentage.** An item with a numeric `pct` gets a
+  bar; an item without one (a Hue lamp "connected", a plug "reachable") gets a
+  status light in its level colour (green / amber / red, grey = silent, hollow
+  circle = not measured). A full or empty bar would invent a measurement.
+- **Colour belongs to the row, not the room.** The room card keeps its worst
+  level on its left border only; every row is coloured by its own `level`
+  (CSS rules are scoped to `.batt.batt-<level>`, never to a descendant of the
+  card).
+
 ## Deploy
 
 Built and served by Coolify from this repository. The one piece of
