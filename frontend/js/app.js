@@ -2133,8 +2133,11 @@ const battLevel = (l) => (BATT_LEVELS.includes(l) ? l : 'unknown');
 const BATT_CHART_W = 300;
 const BATT_CHART_H = 54;
 const BATT_MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
-const battDay = (iso) => Date.parse(`${iso}T12:00:00`);
+// Points are either a day ("2026-10-10", read as noon) or a full timestamp
+// (hourly series, e.g. the Signal tab's first days of history).
+const battDay = (iso) => (typeof iso === 'string' && iso.length > 10 ? Date.parse(iso) : Date.parse(`${iso}T12:00:00`));
 const battMonth = (ms) => { const d = new Date(ms); return `${BATT_MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`; };
+const battHour = (ms) => { const d = new Date(ms); return `${d.getDate()}/${d.getMonth() + 1} ${d.getHours()}h`; };
 
 function battChartHtml(c) {
   const pts = (Array.isArray(c && c.points) ? c.points : [])
@@ -2155,7 +2158,9 @@ function battChartHtml(c) {
   const y = (v) => BATT_CHART_H - ((v - v0) / ((v1 - v0) || 1)) * BATT_CHART_H;
   const path = (arr) => arr.map(([t, v], i) => `${i ? 'L' : 'M'}${x(t).toFixed(1)},${y(v).toFixed(1)}`).join('');
   const unit = c.unit ? ` ${c.unit}` : '';
-  const fmtV = (v) => `${String(v.toFixed(2)).replace('.', ',')}${unit}`;
+  const fmtV = (v) => `${String(v.toFixed(c.unit === '%' ? 0 : 2)).replace('.', ',')}${unit}`;
+  // Less than three days of data: months mean nothing, label day and hour.
+  const tick = (t1 - t0) < 3 * 86400000 ? battHour : battMonth;
   const svg = `<svg class="batt-chart" viewBox="0 0 ${BATT_CHART_W} ${BATT_CHART_H}" preserveAspectRatio="none" aria-hidden="true">
       ${lines.map((l) => `<line class="bl bl-${esc(battLevel(l.level))}" x1="0" x2="${BATT_CHART_W}" y1="${y(l.value).toFixed(1)}" y2="${y(l.value).toFixed(1)}"><title>${esc(l.label || '')} ${esc(fmtV(l.value))}</title></line>`).join('')}
       ${marks.map(([t, label]) => `<line class="bm" x1="${x(t).toFixed(1)}" x2="${x(t).toFixed(1)}" y1="0" y2="${BATT_CHART_H}"><title>${esc(label || '')}</title></line>`).join('')}
@@ -2164,7 +2169,7 @@ function battChartHtml(c) {
     </svg>`;
   const legend = lines.map((l) => `<span class="bl-${esc(battLevel(l.level))}">— ${esc(l.label || '')} ${esc(fmtV(l.value))}</span>`).join(' ');
   return `<div class="batt-chartw">${svg}
-      <div class="batt-axis"><span>${esc(battMonth(t0))}</span><span class="batt-legend">${legend}</span><span>${esc(battMonth(t1))}</span></div>
+      <div class="batt-axis"><span>${esc(tick(t0))}</span><span class="batt-legend">${legend}</span><span>${esc(tick(t1))}</span></div>
     </div>`;
 }
 
