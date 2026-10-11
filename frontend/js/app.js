@@ -1332,7 +1332,35 @@ function energyCurve(e) {
     </div>`;
 }
 
-function energyHtml(e) {
+// Ligne Chauffage de la vue d'ensemble : PAC du jour (pac_daily, heures ON) et
+// dernier releve du soir (rapport energie). Ce dernier n'est PAS en direct --
+// son age est affiche, sinon un releve de 20 h se lirait comme l'etat present.
+function heatingRowHtml(pacDaily, daily) {
+  const rows = Array.isArray(pacDaily) ? pacDaily : [];
+  const today = rows.length ? rows[rows.length - 1] : null;
+  const d = daily || {};
+  const pac = d.pac || {}, boiler = d.boiler || {}, th = d.thermostat_rdc || {};
+  const cells = [];
+  if (today && today.pac_on_hours != null) {
+    cells.push(`<span class="e"><i>PAC aujourd'hui</i><b>${today.pac_on_hours} h</b></span>`);
+  }
+  if (pac.active != null) {
+    cells.push(`<span class="e"><i>PAC</i><b>${pac.active ? 'active' : 'au repos'}</b></span>`);
+  }
+  if (boiler.on != null) {
+    cells.push(`<span class="e"><i>chaudière</i><b>${boiler.on ? 'ON' : 'OFF'}</b></span>`);
+  }
+  if (th.temperature != null) {
+    cells.push(`<span class="e"><i>RDC${th.consigne != null ? ` (consigne ${deg1(th.consigne)})` : ''}</i><b>${deg1(th.temperature)}</b></span>`);
+  }
+  if (!cells.length) return '';
+  const age = typeof d.age_s === 'number' ? since(agoS(d.age_s))
+    : d.generated_at ? since(ago(d.generated_at)) : null;
+  return `<div class="erow ostats"><span class="eyebrow">Chauffage</span>${cells.join('')}`
+    + `${age ? `<span class="esub">relevé ${esc(age)}</span>` : ''}</div>`;
+}
+
+function energyHtml(e, pacDaily, energyDaily) {
   if (!e) {
     return `<div class="energy off"><b class="etitle">Vue d'ensemble</b>`
       + `<span class="esub">électricité indisponible — le compteur n'a pas répondu</span></div>`;
@@ -1368,6 +1396,7 @@ function energyHtml(e) {
         <span class="eyebrow">Électricité</span>
         ${dayCell}${cell('ce mois', e.mois)}${cell('cette année', e.annee)}
       </div>
+      ${heatingRowHtml(pacDaily, energyDaily)}
       ${energyCurve(e)}
       ${old ? `<span class="esub">relevé électricité vieux de ${ago(e.generated_at, Date.now())}</span>` : ''}
     </div>`;
@@ -2646,7 +2675,7 @@ function render() {
   // pour rien pendant qu'il est invisible.
   $('overview').innerHTML = tab !== 'dashboard' ? '' :
     (solo || view !== 'day' ? '' : weatherStripHtml(payload.weather_today))
-    + (solo ? '' : energyHtml(payload.energy));
+    + (solo ? '' : energyHtml(payload.energy, payload.pac_daily, payload.energy_daily_report));
   $('back').innerHTML = solo && shown.length
     ? '<a class="back" href="#">← toutes les pièces</a>' : '';
   // Une seule piece : la grille repasse a une colonne. Sans ca, la carte reste
