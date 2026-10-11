@@ -347,6 +347,7 @@ body:not([data-tab="dashboard"]) .help {
   background: var(--card-2); color: var(--ink-dim);
 }
 .dev.on { background: #e4eefb; color: var(--cool); font-weight: 560; }
+.dev.on.heat { background: #fdeede; color: var(--warm); }
 .dev.fail { background: #fdecea; color: #a5281a; font-weight: 560; }
 
 /* Agrégats de la vue 7 j : même gabarit que les chips d'état, mais ils ne

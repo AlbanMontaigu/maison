@@ -642,6 +642,19 @@ function axisHtml(t, marks, nowIdx) {
 
 /* ── zone card ───────────────────────────────────────────────────────────── */
 
+// Les salles du RDC n'ont pas une tete de vanne chacune : elles partagent celle
+// de « Salles de Vie RDC ». Le dire evite de lire deux circuits la ou il n'y en
+// a qu'un.
+const heatShared = (zone) => (zone.heat && zone.heat.room !== zone.name
+  ? ` (vanne « ${zone.heat.room} », partagée)` : '');
+
+function heatChip(zone) {
+  const h = zone.heat;
+  if (!h) return '';
+  const sp = h.setpoint != null ? ` · consigne ${deg1(h.setpoint)}` : '';
+  return `<span class="dev ${h.pct > 0 ? 'on heat' : ''}">chauffage ${h.pct > 0 ? `${h.pct} %` : 'off'}${sp}${esc(heatShared(zone))}</span>`;
+}
+
 function deviceChip(name, dev) {
   if (!dev) return '';
   const failed = dev.fail_streak > 0 || dev.off_fail_streak > 0;
@@ -658,7 +671,7 @@ function deviceChip(name, dev) {
 // donc pas de chiffre qui contredise le dessin juste au-dessus.
 function weekStats(zone, f, t) {
   const stepH = tickStep(t) / 3600;
-  let n = 0, sum = 0, lo = Infinity, hi = -Infinity, out = 0, ac = 0, fan = 0;
+  let n = 0, sum = 0, lo = Infinity, hi = -Infinity, out = 0, ac = 0, fan = 0, heat = 0;
   for (let i = 0; i < f.T.length; i++) {
     const v = f.T[i];
     if (v != null) {
@@ -671,6 +684,7 @@ function weekStats(zone, f, t) {
     }
     if (f.ac[i]) ac++;
     if (f.fan[i]) fan++;
+    if (f.heat[i] > 0) heat++;
   }
   if (!n) return '';
   const dur = (ticks) => {
@@ -685,6 +699,7 @@ function weekStats(zone, f, t) {
   // Serie absente => surtout PAS « clim — », qui affirme qu'elle n'a pas tourne.
   if (zone.has_ac && f.has.ac) chips.push(`<span class="stat">clim ${ac ? dur(ac) : '—'}</span>`);
   if (zone.has_fan && f.has.fan) chips.push(`<span class="stat">ventilo ${fan ? dur(fan) : '—'}</span>`);
+  if (zone.heat && f.has.heat) chips.push(`<span class="stat">chauffage ${heat ? dur(heat) : '—'}</span>`);
   return `<div class="devs">${chips.join('')}</div>`;
 }
 
@@ -816,6 +831,11 @@ function zoneDetail(zone, f, t) {
     rows.push(['Ventilo', on ? dur(on) : 'jamais',
       on ? `${pctOf(on)} % ${scope}` : 'sur cette fenêtre']);
   }
+  if (zone.heat && f.has.heat) {
+    const on = f.heat.filter((x) => x > 0).length;
+    rows.push(['Chauffage', on ? dur(on) : 'jamais',
+      `${on ? `${pctOf(on)} % ${scope} · ` : ''}demande de la vanne${heatShared(zone)}`]);
+  }
   if (zone.has_velux && f.has.velux) {
     const v = f.velux.filter((x) => x != null);
     if (v.length) rows.push(['Volet', `ouvert ${Math.round(v.reduce((a, b) => a + b, 0) / v.length)} % en moyenne`,
@@ -878,7 +898,7 @@ function zoneCard(zone, f, t, marks, nowIdx) {
   const hasBand = band.min != null && band.max != null;
 
   const tempCls = hasBand && c.T != null ? (c.T > band.max ? 'hot' : c.T < band.min ? 'cold' : '') : '';
-  const devs = [deviceChip('clim', c.ac), deviceChip('ventilo', c.fan),
+  const devs = [deviceChip('clim', c.ac), deviceChip('ventilo', c.fan), heatChip(zone),
     c.velux != null ? `<span class="dev ${c.velux > 0 ? 'on' : ''}">volet ${c.velux}%${c.velux_since ? ' · ' + ago(c.velux_since) : ''}</span>` : ''].join('');
 
   // Occupation et directive sont passees dans plainState ; les repeter ici les
@@ -954,6 +974,12 @@ function zoneCard(zone, f, t, marks, nowIdx) {
       ${!full || !zone.has_fan ? '' : f.has.fan
         ? trackRow('ventilo', 'Ventilo en marche, allumé par la maison', trackSvg('fan', nowIdx, f.fan, (v) => v ? { fill: 'var(--fan)' } : null))
         : missingRow('ventilo')}
+      ${!full || !zone.heat ? '' : f.has.heat
+        ? trackRow('chauffage', `Demande de chauffage de la vanne${heatShared(zone)} — hauteur de la barre = % d'ouverture, trait fin = fermée. Vide = pas de relevé.`,
+            trackSvg('heat', nowIdx, f.heat, (v) => v == null ? null
+              : v > 0 ? { fill: 'var(--warm)', op: .85, h: Math.max(2, (v / 100) * STRIP_H) }
+                      : { fill: 'var(--warm)', op: .25, h: 1.5 }))
+        : missingRow('chauffage')}
       ${!full || !zone.has_velux ? '' : f.has.velux
         ? trackRow('volet', "Ouverture du volet — hauteur de la barre = % ouvert", trackSvg('velux', nowIdx, f.velux, (v) => v == null ? null : { fill: 'var(--velux)', op: .8, h: Math.max(1.5, (v / 100) * STRIP_H) }))
         : missingRow('volet')}
@@ -2580,13 +2606,14 @@ function frameFor(zone, n, v) {
     bmin: cut(ser.bmin), bmax: cut(ser.bmax),
     act: pad(expand(zone.runs || [], n).slice(v.i0, v.i1)),
     occ: cut(ser.occ), ac: cut(ser.ac), fan: cut(ser.fan), velux: cut(ser.velux),
+    heat: cut(ser.heat),
     // Quelles series le payload portait REELLEMENT. Un conteneur qui sert
     // encore un fichier d'avant les pistes dessinait des barres vides --
     // indistinguables d'une journee ou la clim n'a jamais tourne. L'absence de
     // donnee ne doit jamais se lire comme une absence d'activite : la piste dit
     // « donnee absente » au lieu de se dessiner vide.
     has: { occ: 'occ' in ser, ac: 'ac' in ser, fan: 'fan' in ser, velux: 'velux' in ser,
-           solar: 'solar' in ser },
+           heat: 'heat' in ser, solar: 'solar' in ser },
     fc: forecastArrays(zone.name, v.t, v.nowIdx),
     calib: calibFrame(zone.name, v.t),
     // Tenu a part de `occ` : les agregats (temps d'occupation, page par piece)
