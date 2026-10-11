@@ -648,11 +648,18 @@ function axisHtml(t, marks, nowIdx) {
 const heatShared = (zone) => (zone.heat && zone.heat.room !== zone.name
   ? ` (vanne « ${zone.heat.room} », partagée)` : '');
 
+// « Chauffe » = chaudiere en marche ET vanne qui demande -- ni l'une ni l'autre
+// seule. Une vanne qui demande pendant que la chaudiere est a l'arret ne chauffe
+// rien : la pastille le dit au lieu de l'afficher comme du chauffage.
 function heatChip(zone) {
   const h = zone.heat;
   if (!h) return '';
   const sp = h.setpoint != null ? ` · consigne ${deg1(h.setpoint)}` : '';
-  return `<span class="dev ${h.pct > 0 ? 'on heat' : ''}">chauffage ${h.pct > 0 ? `${h.pct} %` : 'off'}${sp}${esc(heatShared(zone))}</span>`;
+  const room = esc(heatShared(zone));
+  if (h.heating === true) return `<span class="dev on heat">chauffage ${h.pct} %${sp}${room}</span>`;
+  if (h.heating === null) return `<span class="dev">chauffage — chaudière inconnue${sp}${room}</span>`;
+  if (h.pct > 0) return `<span class="dev">vanne ${h.pct} %, chaudière à l'arrêt : ne chauffe pas${sp}${room}</span>`;
+  return `<span class="dev">chauffage off${sp}${room}</span>`;
 }
 
 function deviceChip(name, dev) {
@@ -834,7 +841,7 @@ function zoneDetail(zone, f, t) {
   if (zone.heat && f.has.heat) {
     const on = f.heat.filter((x) => x > 0).length;
     rows.push(['Chauffage', on ? dur(on) : 'jamais',
-      `${on ? `${pctOf(on)} % ${scope} · ` : ''}demande de la vanne${heatShared(zone)}`]);
+      `${on ? `${pctOf(on)} % ${scope} · ` : ''}chaudière en marche et vanne qui demande${heatShared(zone)}`]);
   }
   if (zone.has_velux && f.has.velux) {
     const v = f.velux.filter((x) => x != null);
@@ -975,10 +982,12 @@ function zoneCard(zone, f, t, marks, nowIdx) {
         ? trackRow('ventilo', 'Ventilo en marche, allumé par la maison', trackSvg('fan', nowIdx, f.fan, (v) => v ? { fill: 'var(--fan)' } : null))
         : missingRow('ventilo')}
       ${!full || !zone.heat ? '' : f.has.heat
-        ? trackRow('chauffage', `Demande de chauffage de la vanne${heatShared(zone)} — hauteur de la barre = % d'ouverture, trait fin = fermée. Vide = pas de relevé.`,
-            trackSvg('heat', nowIdx, f.heat, (v) => v == null ? null
-              : v > 0 ? { fill: 'var(--warm)', op: .85, h: Math.max(2, (v / 100) * STRIP_H) }
-                      : { fill: 'var(--warm)', op: .25, h: 1.5 }))
+        ? trackRow('chauffage', `La pièce chauffe quand la chaudière est en marche ET que la vanne${heatShared(zone)} demande. Barre pleine : % d'ouverture. Barre pâle : la vanne demande mais la chaudière est à l'arrêt, donc rien ne chauffe. Trait fin : rien demandé. Vide : pas de relevé.`,
+            trackSvg('heat', nowIdx, f.heat.map((v, i) => (v == null ? null : v > 0 ? v : -(f.heatreq[i] || 0))),
+              (v) => v == null ? null
+                : v > 0 ? { fill: 'var(--warm)', op: .9, h: Math.max(2, (v / 100) * STRIP_H) }
+                : v < 0 ? { fill: 'var(--warm)', op: .22, h: Math.max(2, (-v / 100) * STRIP_H) }
+                        : { fill: 'var(--warm)', op: .25, h: 1.5 }))
         : missingRow('chauffage')}
       ${!full || !zone.has_velux ? '' : f.has.velux
         ? trackRow('volet', "Ouverture du volet — hauteur de la barre = % ouvert", trackSvg('velux', nowIdx, f.velux, (v) => v == null ? null : { fill: 'var(--velux)', op: .8, h: Math.max(1.5, (v / 100) * STRIP_H) }))
@@ -2606,7 +2615,7 @@ function frameFor(zone, n, v) {
     bmin: cut(ser.bmin), bmax: cut(ser.bmax),
     act: pad(expand(zone.runs || [], n).slice(v.i0, v.i1)),
     occ: cut(ser.occ), ac: cut(ser.ac), fan: cut(ser.fan), velux: cut(ser.velux),
-    heat: cut(ser.heat),
+    heat: cut(ser.heat), heatreq: cut(ser.heatreq),
     // Quelles series le payload portait REELLEMENT. Un conteneur qui sert
     // encore un fichier d'avant les pistes dessinait des barres vides --
     // indistinguables d'une journee ou la clim n'a jamais tourne. L'absence de
