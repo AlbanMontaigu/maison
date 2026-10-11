@@ -1060,6 +1060,11 @@ function energyDevices() {
       devs.push({ name: `${label} ${z.name}`, ser: expand(raw, ts.length) });
     }
   }
+  // La PAC est un appareil de MAISON, pas de piece : une seule entree, qui
+  // nomme le chauffage dans la bulle comme une clim nomme la sienne.
+  if (payload.pac && payload.pac.series) {
+    devs.push({ name: 'PAC (chauffage)', ser: expand(payload.pac.series, ts.length) });
+  }
   for (const z of payload.zones || []) {
     const raw = (z.series || {}).velux;
     if (!raw || !raw.length) continue;
@@ -1089,6 +1094,17 @@ function deviceCounts(t0, t1) {
       for (let i = 0; i < ts.length; i++) if (ser[i]) arr[i]++;
     }
   }
+  // La PAC : une seule pour la maison, donc 0/1 et SA PROPRE echelle -- sur celle
+  // des clims, un « 1 » sous un « 3 » se lirait a un tiers de hauteur.
+  // Inconnu (null) et arret se dessinent pareil, a plat : aucun des deux ne doit
+  // passer pour « en marche ».
+  const pac = new Array(ts.length).fill(0);
+  if (payload.pac && payload.pac.series) {
+    const ser = expand(payload.pac.series, ts.length);
+    for (let i = 0; i < ts.length; i++) if (ser[i]) pac[i] = 1;
+  }
+  let pacOn = false;
+  for (let i = 0; i < ts.length; i++) if (ts[i] >= t0 && ts[i] <= t1 && pac[i]) { pacOn = true; break; }
   // Le maximum se prend sur la FENETRE affichee, pas sur tout le payload : sur
   // « aujourd'hui », une pointe d'hier ecraserait l'echelle du jour.
   let max = 0;
@@ -1096,7 +1112,7 @@ function deviceCounts(t0, t1) {
     if (ts[i] < t0 || ts[i] > t1) continue;
     max = Math.max(max, ac[i], fan[i]);
   }
-  return { ac, fan, ts, max };
+  return { ac, fan, pac, pacOn, ts, max };
 }
 
 function energyCurve(e) {
@@ -1236,15 +1252,16 @@ function energyCurve(e) {
   // ce qui appartient a quoi avant de lire quoi que ce soit. Separes et alignes,
   // on lit chacun pour lui, et on les compare a la verticale.
   const counts = deviceCounts(t0, t1);
-  const HN = 30;
+  const HN = 45;
   let curves = '';
-  if (counts.max > 0 && counts.ts.length) {
+  if ((counts.max > 0 || counts.pacOn) && counts.ts.length) {
     const step = counts.ts.length > 1 ? (counts.ts[1] - counts.ts[0]) : 600;
     // UNE BANDE PAR SERIE : a nombre egal, deux traits sur la meme echelle se
     // confondraient et « 2 clim ET 2 ventilos » se lirait « 2 appareils ».
     const BAND = 11, GAP = 4;
-    const series = [{ arr: counts.ac, color: 'var(--cool)', base: HN },
-                    { arr: counts.fan, color: 'var(--fan)', base: HN - BAND - GAP }];
+    const series = [{ arr: counts.ac, color: 'var(--cool)', base: HN, max: counts.max },
+                    { arr: counts.fan, color: 'var(--fan)', base: HN - BAND - GAP, max: counts.max },
+                    { arr: counts.pac, color: 'var(--warm)', base: HN - 2 * (BAND + GAP), max: 1 }];
     for (const se of series) {
       const pts = [];
       for (let i = 0; i < counts.ts.length; i++) {
@@ -1253,7 +1270,7 @@ function energyCurve(e) {
         pts.push([tsi, se.arr[i]]);
       }
       if (!pts.length) continue;
-      const yv = (v) => se.base - (v / counts.max) * BAND;
+      const yv = (v) => se.base - (v / Math.max(1, se.max)) * BAND;
       // EN MARCHES, jamais lissee : un nombre d'appareils saute de 1 a 2, et un
       // trait oblique entre les deux dessinerait un 1,5 qui n'a jamais tourne.
       let dd = `M${x(pts[0][0]).toFixed(2)},${yv(pts[0][1]).toFixed(1)}`;
@@ -1328,39 +1345,33 @@ function energyCurve(e) {
       <div class="ecurwrap"><div class="ecur" hidden></div></div>
       </div>
       <div class="erow2"><div class="eaxis">${axis}</div></div>
-      <div class="eleg">${hasCost ? `pointe ${esc(fmt(hi))}` : 'coût du jour publié demain — Enedis diffère'}${tempLbl ? ` · ${esc(tempLbl)}` : ''}${counts.max ? ` · combien en marche à la fois (max ${counts.max}) <i class="ekey" style="background:var(--cool)"></i>clim <i class="ekey" style="background:var(--fan)"></i>ventilo` : ''}</div>
+      <div class="eleg">${hasCost ? `pointe ${esc(fmt(hi))}` : 'coût du jour publié demain — Enedis diffère'}${tempLbl ? ` · ${esc(tempLbl)}` : ''}${counts.max || counts.pacOn ? ` · combien en marche à la fois${counts.max ? ` (max ${counts.max})` : ''} <i class="ekey" style="background:var(--cool)"></i>clim <i class="ekey" style="background:var(--fan)"></i>ventilo <i class="ekey" style="background:var(--warm)"></i>PAC` : ''}</div>
     </div>`;
 }
 
-// Ligne Chauffage de la vue d'ensemble : PAC du jour (pac_daily, heures ON) et
-// dernier releve du soir (rapport energie). Ce dernier n'est PAS en direct --
-// son age est affiche, sinon un releve de 20 h se lirait comme l'etat present.
-function heatingRowHtml(pacDaily, daily) {
+// Ligne Chauffage de la vue d'ensemble : la PAC EN DIRECT (collectee toutes les
+// 10 min) et ses heures du jour. Chaudiere et thermostat ne sont pas ici -- leur
+// seule source est le releve du soir, et le montrer a cote d'un etat en direct
+// le ferait lire comme tel ; ils restent sur l'onglet Rapports, avec leur age.
+function heatingRowHtml(pac, pacDaily) {
+  if (!pac || !pac.now) return '';
+  const n = pac.now;
   const rows = Array.isArray(pacDaily) ? pacDaily : [];
   const today = rows.length ? rows[rows.length - 1] : null;
-  const d = daily || {};
-  const pac = d.pac || {}, boiler = d.boiler || {}, th = d.thermostat_rdc || {};
-  const cells = [];
+  const cells = [`<span class="e"><i>PAC</i><b>${n.active ? 'en marche' : "à l'arrêt"}</b></span>`];
+  if (n.depart_c != null && n.retour_c != null) {
+    cells.push(`<span class="e"><i>départ / retour</i><b>${deg1(n.depart_c)} / ${deg1(n.retour_c)}</b></span>`);
+  }
   if (today && today.pac_on_hours != null) {
-    cells.push(`<span class="e"><i>PAC aujourd'hui</i><b>${today.pac_on_hours} h</b></span>`);
+    cells.push(`<span class="e"><i>aujourd'hui</i><b>${today.pac_on_hours} h</b></span>`);
   }
-  if (pac.active != null) {
-    cells.push(`<span class="e"><i>PAC</i><b>${pac.active ? 'active' : 'au repos'}</b></span>`);
-  }
-  if (boiler.on != null) {
-    cells.push(`<span class="e"><i>chaudière</i><b>${boiler.on ? 'ON' : 'OFF'}</b></span>`);
-  }
-  if (th.temperature != null) {
-    cells.push(`<span class="e"><i>RDC${th.consigne != null ? ` (consigne ${deg1(th.consigne)})` : ''}</i><b>${deg1(th.temperature)}</b></span>`);
-  }
-  if (!cells.length) return '';
-  const age = typeof d.age_s === 'number' ? since(agoS(d.age_s))
-    : d.generated_at ? since(ago(d.generated_at)) : null;
+  // Un relevé de plus d'une demi-heure n'est plus « maintenant » : la page le dit.
+  const stale = typeof n.age_s === 'number' && n.age_s > 1800;
   return `<div class="erow ostats"><span class="eyebrow">Chauffage</span>${cells.join('')}`
-    + `${age ? `<span class="esub">relevé ${esc(age)}</span>` : ''}</div>`;
+    + `${stale ? `<span class="esub">relevé ${esc(since(agoS(n.age_s)))}</span>` : ''}</div>`;
 }
 
-function energyHtml(e, pacDaily, energyDaily) {
+function energyHtml(e, pac, pacDaily) {
   if (!e) {
     return `<div class="energy off"><b class="etitle">Vue d'ensemble</b>`
       + `<span class="esub">électricité indisponible — le compteur n'a pas répondu</span></div>`;
@@ -1396,7 +1407,7 @@ function energyHtml(e, pacDaily, energyDaily) {
         <span class="eyebrow">Électricité</span>
         ${dayCell}${cell('ce mois', e.mois)}${cell('cette année', e.annee)}
       </div>
-      ${heatingRowHtml(pacDaily, energyDaily)}
+      ${heatingRowHtml(pac, pacDaily)}
       ${energyCurve(e)}
       ${old ? `<span class="esub">relevé électricité vieux de ${ago(e.generated_at, Date.now())}</span>` : ''}
     </div>`;
@@ -2675,7 +2686,7 @@ function render() {
   // pour rien pendant qu'il est invisible.
   $('overview').innerHTML = tab !== 'dashboard' ? '' :
     (solo || view !== 'day' ? '' : weatherStripHtml(payload.weather_today))
-    + (solo ? '' : energyHtml(payload.energy, payload.pac_daily, payload.energy_daily_report));
+    + (solo ? '' : energyHtml(payload.energy, payload.pac, payload.pac_daily));
   $('back').innerHTML = solo && shown.length
     ? '<a class="back" href="#">← toutes les pièces</a>' : '';
   // Une seule piece : la grille repasse a une colonne. Sans ca, la carte reste

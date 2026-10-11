@@ -152,7 +152,7 @@ body {
    tranche, et le dessin du comptage heritait des 62 px du cout. Il est plus bas
    parce qu'il porte un petit entier, pas une echelle continue -- lui donner la
    meme hauteur en ferait le sujet principal du bloc. */
-.ecurve .eplot-n svg { height: 30px; }
+.ecurve .eplot-n svg { height: 45px; }
 
 /* Ordonnee : chiffres en HTML par-dessus le SVG (celui-ci est etire, un <text>
    y serait comprime). Meme technique que les courbes de piece. */
